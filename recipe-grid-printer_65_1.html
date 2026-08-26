@@ -1,0 +1,4059 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Recipe Grid Builder — Receipt Printer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+  :root {
+    --ink: #171717;
+    --line: #d4d4d4;
+    --line-soft: #ebebeb;
+    --paper: #ffffff;
+    --bg: #fafafa;
+    --muted: #383838;
+    --active: #171717;
+    --active-bg: #f0f0f0;
+    --panel-bg: #a8a8a8;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; overflow:hidden; }
+  body {
+    font-family: 'Courier New', ui-monospace, monospace;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  .tabbar {
+    height: 42px;
+    display:flex;
+    border-bottom: 1px solid var(--ink);
+    background: var(--paper);
+  }
+  .tabbar button {
+    flex:0 0 auto;
+    font-family: inherit;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0 1.25rem;
+    border: none;
+    border-right: 1px solid var(--line);
+    background: var(--paper);
+    color: var(--muted);
+    cursor:pointer;
+  }
+  .tabbar button.active { background: var(--ink); color:#fff; }
+  .tab-content { display:none; height: calc(100vh - 42px); min-height:0; }
+  .tab-content.active { display:block; }
+  .app {
+    height:100%;
+    min-height:0;
+    display:grid;
+    grid-template-columns: minmax(340px, 520px) 1fr;
+  }
+
+  /* ---- LEFT: FORM ---- */
+  .form-pane {
+    border-right: 1px solid var(--line);
+    background: var(--panel-bg);
+    display:flex;
+    flex-direction:column;
+    height:100%;
+    min-height:0;
+    width:100%;
+  }
+  .form-header {
+    padding: 1rem 1.25rem 0.85rem;
+    border-bottom: 1px solid var(--line);
+    background: var(--paper);
+    flex-shrink:0;
+  }
+  .form-header .eyebrow {
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .form-header h1 { font-size: 1.05rem; font-weight: 700; margin-top: 0.15rem; }
+  .form-body {
+    flex:1;
+    min-height:0;
+    overflow-y: auto;
+    padding: 1rem 1.25rem 1.5rem;
+    display:flex;
+    flex-direction:column;
+    gap: 1rem;
+  }
+  .field {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    padding: 0.6rem 0.7rem;
+  }
+  .field label {
+    display:block;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin-bottom: 0.3rem;
+  }
+  .field input, .field textarea, .field select {
+    width:100%;
+    font-family: inherit;
+    font-size: 0.85rem;
+    padding: 0.45rem 0.55rem;
+    border: 1px solid var(--line);
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .field input:focus, .field textarea:focus, .field select:focus { outline: none; border-color: var(--ink); }
+  .row3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem; }
+
+  .section-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink);
+    font-weight: 700;
+    border-bottom: 1px solid rgba(0,0,0,0.35);
+    padding-bottom: 0.3rem;
+    margin-top: 0.2rem;
+  }
+
+  .ing-row {
+    display:flex;
+    gap: 0.4rem;
+    align-items:center;
+    flex-wrap: wrap;
+  }
+  .ing-row .code {
+    width: 1.6rem;
+    height: 1.6rem;
+    flex-shrink:0;
+    border: 1px solid var(--ink);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size: 0.75rem;
+    font-weight:700;
+  }
+  /* Fixed size on purpose — every ingredient row is the same single-line
+     height regardless of content, so unlike the Menu tab's photo (which
+     has to match a variable item height), this one just stays a plain
+     constant square instead of needing JS to measure anything. Shared per
+     ingredient NAME via inventoryState, so the same ingredient photo shows
+     up everywhere that ingredient is used across every recipe. */
+  .ing-photo {
+    width: 2.2rem;
+    height: 2.2rem;
+    flex-shrink:0;
+    border:1px solid #cbb994;
+    background:#f2ecdc;
+    overflow:hidden;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+  }
+  .ing-photo img { width:100%; height:100%; object-fit:cover; display:block; }
+  .ing-photo-placeholder { font-size:0.85rem; color:#cbb994; }
+  .ing-row select.name {
+    flex: 1.4;
+    font-family: inherit;
+    font-size: inherit;
+    border: 1px solid var(--line);
+    background: var(--paper);
+    color: var(--ink);
+    padding: 0.4rem 0.3rem;
+  }
+  .ing-row select.name:focus { outline: none; border-color: var(--ink); }
+  .ing-row input.qty { flex: 0.55; min-width:3.5rem; }
+  .ing-row select.unit {
+    flex: 0.9;
+    min-width:6rem;
+    font-family: inherit;
+    font-size: inherit;
+    border: 1px solid var(--line);
+    background: var(--paper);
+    color: var(--ink);
+    padding: 0.4rem 0.3rem;
+  }
+  .ing-row select.unit:focus { outline: none; border-color: var(--ink); }
+  .icon-btn {
+    border: 1px solid var(--line);
+    background: var(--paper);
+    color: var(--muted);
+    font-size: 0.75rem;
+    width: 1.6rem;
+    height: 1.6rem;
+    flex-shrink:0;
+    cursor:pointer;
+  }
+  .icon-btn:hover { border-color: var(--ink); color: var(--ink); }
+  .icon-btn.expanded { background: var(--active-bg); border-color: var(--ink); color: var(--ink); }
+
+  .step-block {
+    border: 1px solid var(--line);
+    background: var(--paper);
+    padding: 0.6rem;
+    display:flex;
+    flex-direction:column;
+    gap: 0.4rem;
+  }
+  .step-block-head {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+  .step-block textarea { min-height: 2.6rem; resize:vertical; }
+  .chip-row { display:flex; flex-wrap:wrap; gap: 0.3rem; }
+  .chip {
+    font-size: 0.7rem;
+    padding: 0.15rem 0.45rem;
+    border: 1px solid var(--line);
+    cursor:pointer;
+    user-select:none;
+  }
+  .chip.active { background: var(--active); color:#fff; border-color: var(--active); }
+
+  .add-btn {
+    align-self: flex-start;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: none;
+    border: 1px dashed var(--line);
+    color: var(--muted);
+    padding: 0.35rem 0.6rem;
+    cursor:pointer;
+  }
+  .add-btn:hover { border-color: var(--ink); color: var(--ink); }
+
+  .form-footer { border-top: 1px solid var(--line); background: var(--paper); padding: 0.9rem 1.25rem; }
+  .print-btn {
+    width:100%;
+    padding: 0.75rem;
+    background: var(--ink);
+    color: #fff;
+    border: none;
+    font-family: inherit;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    cursor:pointer;
+  }
+  .print-btn:hover { opacity: 0.85; }
+  .print-hint { font-size: 0.66rem; color: var(--muted); text-align:center; margin-top: 0.5rem; }
+
+  /* ---- RIGHT: PREVIEW (Cooking-for-Engineers grid) ---- */
+  .preview-pane {
+    background: var(--bg);
+    padding: 2rem;
+    overflow:auto;
+    height:100vh;
+  }
+  .sheet {
+    max-width: 780px;
+    margin: 0 auto;
+    background: var(--paper);
+    border: 1px solid var(--ink);
+    padding: 1.75rem 2rem 2rem;
+  }
+  .sheet-title { font-size: 1.4rem; font-weight:700; text-align:center; }
+  .sheet-desc { font-size: 0.8rem; color:#555; text-align:center; margin-top:0.3rem; }
+  .sheet-meta {
+    display:flex; justify-content:center; gap: 1.5rem;
+    font-size: 0.72rem; color: var(--muted);
+    margin: 0.6rem 0 1.4rem;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+
+  table.cfe {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.75rem;
+  }
+  table.cfe th, table.cfe td {
+    border: 1px solid var(--line);
+    text-align:center;
+    padding: 0.35rem 0.2rem;
+    vertical-align: middle;
+  }
+  table.cfe th.step-col { font-weight:700; background: var(--paper); }
+  table.cfe td.ing-label {
+    text-align:left;
+    font-weight:700;
+    white-space:normal;
+    padding-left: 0.5rem;
+  }
+  table.cfe td.ing-label .amt { font-weight:400; color: var(--muted); display:block; font-size:0.68rem; }
+  td.cell-active { background: var(--active-bg); }
+  td.cell-intro { background: var(--paper); color: var(--ink); font-weight:700; border: 2px solid var(--ink); }
+  td.cell-empty { color: transparent; }
+  tr.timeline-row td.ing-label { font-weight:700; }
+  tr.timeline-row .timeline-cell {
+    background: var(--paper);
+    color: var(--ink);
+    font-weight:700;
+    font-size: 0.65rem;
+    border: 2px solid var(--ink);
+  }
+  tr.timeline-row .timeline-cell-empty {
+    background: var(--line-soft);
+  }
+
+  .steps-legend { margin-top: 1.5rem; }
+  .steps-legend li {
+    list-style:none;
+    counter-increment: sl;
+    font-size: 0.8rem;
+    line-height:1.4;
+    padding: 0.4rem 0;
+    border-bottom: 1px dotted var(--line);
+    display:flex;
+    gap:0.5rem;
+    color: #000000;
+    font-weight: 500;
+  }
+  .steps-legend { counter-reset: sl; }
+  .steps-legend li::before {
+    content: counter(sl);
+    font-weight:700;
+    width: 1.2rem; height:1.2rem; flex-shrink:0;
+    border:1px solid var(--ink);
+    display:flex; align-items:center; justify-content:center;
+    font-size: 0.68rem;
+  }
+  .empty-note { color: var(--muted); font-style: italic; font-size: 0.8rem; }
+
+  /* Print-only text scaling. These only ever apply to elements built
+     specifically for the 80mm receipt capture (the header gets this class
+     added temporarily right before capture, and the offscreen grid/legend
+     HTML built in printReceipt() includes it directly) — never to the
+     on-screen Recipe Card preview, which keeps its normal sizes above. */
+  .print-scale-up .sheet-title { font-size: 1.7rem; }
+  .print-scale-up .sheet-desc { font-size: 0.95rem; }
+  .print-scale-up .sheet-meta { font-size: 0.85rem; }
+  table.cfe.print-scale-up { font-size: 0.95rem; }
+  table.cfe.print-scale-up td.ing-label .amt { font-size: 0.8rem; }
+  table.cfe.print-scale-up tr.timeline-row .timeline-cell { font-size: 0.78rem; }
+  .steps-legend.print-scale-up li { font-size: 1.05rem; }
+  .steps-legend.print-scale-up li::before { width: 1.5rem; height: 1.5rem; font-size: 0.85rem; }
+
+  .timeline {
+    margin-top: 1.75rem;
+    border-top: 1px solid var(--ink);
+    padding-top: 1rem;
+  }
+  .timeline-label {
+    font-size: 0.7rem;
+    font-weight:700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.6rem;
+  }
+  .timeline-bar {
+    display:flex;
+    width:100%;
+    height: 2.2rem;
+    border: 1px solid var(--ink);
+  }
+  .timeline-seg {
+    height:100%;
+    border-right: 1px solid var(--ink);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size: 0.68rem;
+    font-weight:700;
+    overflow:hidden;
+    white-space:nowrap;
+    background: var(--paper);
+  }
+  .timeline-seg:last-child { border-right:none; }
+  .timeline-seg:nth-child(odd) { background: var(--active-bg); }
+  .timeline-ticks {
+    display:flex;
+    justify-content:space-between;
+    font-size: 0.62rem;
+    color: var(--muted);
+    margin-top: 0.3rem;
+  }
+  .timeline-total {
+    text-align:right;
+    font-size: 0.68rem;
+    color: var(--muted);
+    margin-top: 0.4rem;
+  }
+
+  /* ---- SYSTEM OF COOKERY ---- */
+  .sys-preview-pane {
+    background: var(--bg);
+    height:100%;
+    width: fit-content;
+    max-width: 720px;
+    justify-self: start;
+    overflow:hidden;
+    padding: 1.25rem;
+    display:flex;
+    flex-direction:column;
+    gap: 0.9rem;
+  }
+  .sys-title-block { text-align:center; flex-shrink:0; }
+  .sys-title-block h2 {
+    font-size: 1.6rem;
+    letter-spacing: 0.06em;
+    font-weight:700;
+  }
+  .sys-title-block .sub {
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    margin-top: 0.15rem;
+  }
+  .print-force-black, .print-force-black * {
+    color: #000000 !important;
+  }
+
+  .sys-columns {
+    flex: 1;
+    display:grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+    min-height: 0;
+  }
+  .sys-col {
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    display:flex;
+    flex-direction:column;
+    min-height:0;
+    overflow:hidden;
+  }
+  .sys-col-head {
+    padding: 0.6rem 0.6rem 0.5rem;
+    border-bottom: 1px solid var(--ink);
+    text-align:center;
+    flex-shrink:0;
+  }
+  .sys-col-num {
+    width: 1.6rem; height:1.6rem;
+    border-radius: 50%;
+    background: var(--ink);
+    color:#fff;
+    display:flex; align-items:center; justify-content:center;
+    font-size:0.75rem; font-weight:700;
+    margin: 0 auto 0.35rem;
+  }
+  .sys-col-title { font-size: 0.78rem; font-weight:700; letter-spacing:0.03em; }
+  .sys-col-body {
+    flex:1;
+    overflow-y:auto;
+    padding: 0.55rem 0.65rem;
+    display:flex;
+    flex-direction:column;
+    gap: 0.7rem;
+  }
+  .sys-section-label {
+    font-size: 0.62rem;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    color: var(--muted);
+    border-bottom: 1px dotted var(--line);
+    padding-bottom:0.2rem;
+    margin-bottom:0.3rem;
+  }
+  .sys-bullets { list-style:none; }
+  .sys-bullets li {
+    font-size: 0.68rem;
+    line-height:1.35;
+    padding: 0.15rem 0;
+    display:flex;
+    gap:0.3rem;
+  }
+  .sys-bullets li::before {
+    content:'';
+    display:inline-block;
+    width:0.75em;
+    height:0.75em;
+    border:1.5px solid var(--ink);
+    flex-shrink:0;
+    margin-top:0.15em;
+  }
+  .sys-bullets li.empty-note::before { display:none; }
+  .sys-col-footer {
+    border-top: 1px solid var(--line);
+    padding: 0.5rem 0.65rem;
+    text-align:center;
+    flex-shrink:0;
+  }
+  .sys-col-footer .flabel {
+    font-size: 0.6rem; text-transform:uppercase; letter-spacing:0.06em; color: var(--muted);
+  }
+  .sys-col-footer .fbig { font-size: 0.75rem; font-weight:700; margin-top:0.15rem; }
+  .sys-col-footer .fsmall { font-size: 0.62rem; color:var(--muted); margin-top:0.1rem; }
+
+  /* system builder form bits */
+  .sys-stage-block { border:1px solid var(--line); background: var(--paper); padding:0.6rem; display:flex; flex-direction:column; gap:0.5rem; }
+  .sys-stage-head { font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; }
+  .sys-section-block { border:1px dashed var(--line); background: var(--paper); padding:0.5rem; display:flex; flex-direction:column; gap:0.35rem; }
+  .sys-item-row { display:flex; gap:0.35rem; align-items:center; }
+  .reorder-btns { display:flex; flex-direction:column; gap:0.1rem; }
+  .icon-btn.small { width:1.3rem; height:1.1rem; font-size:0.7rem; padding:0; line-height:1; color: var(--ink); font-weight:700; border-color: var(--ink); }
+  .icon-btn:disabled { opacity:0.3; cursor:default; }
+  .sys-item-row input { flex:1; }
+
+  /* ---- MENU (restaurant look) ---- */
+  .menu-sheet {
+    width:100%;
+    background:#fdfaf3;
+    border:1px solid #cbb994;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    padding:2.5rem 2.5rem 2.75rem;
+    font-family: Georgia, 'Times New Roman', serif;
+    color:#2b2116;
+  }
+  .menu-item {
+    display:flex;
+    gap:0.9rem;
+    padding:0.85rem 0;
+    border-bottom:1px dotted #cbb994;
+  }
+  .menu-item:last-child { border-bottom:none; }
+  .menu-item-unavailable { opacity: 0.62; }
+  /* No fixed height — .menu-item is a flex row with the default
+     align-items:stretch, so this box (whether it holds a real photo or
+     falls back to the click-to-add placeholder) always stretches to
+     exactly match .menu-item-body's height: from the item name down
+     through the bottom of the +/- order row. Width is set to that same
+     pixel value by syncMenuPhotoSquares() after each render — CSS
+     aspect-ratio can't do this on its own here because the height itself
+     comes from flex stretch, which isn't resolved yet when aspect-ratio
+     would need it, so it collapsed to a thin sliver instead of a square. */
+  .menu-item-photo {
+    flex-shrink:0;
+    border:1px solid #cbb994;
+    background:#f2ecdc;
+    overflow:hidden;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .menu-item-photo img { width:100%; height:100%; object-fit:cover; display:block; }
+  .menu-item-photo-placeholder {
+    width:100%; height:100%;
+    border:1px dashed #cbb994;
+    background:none;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:0.15rem;
+    font-size:0.6rem; color:#8a7550; text-align:center; padding:0.2rem;
+    cursor:pointer;
+  }
+  .menu-item-photo-placeholder:hover { background:#fdfaf3; color:#6b5b3e; }
+  .menu-item-photo-placeholder .icon { font-size:1.1rem; }
+  .menu-item-body { flex:1; min-width:0; }
+  .menu-item-row { display:flex; align-items:baseline; gap:0.4rem; }
+  .menu-item-name { font-weight:700; font-size:1rem; text-transform:uppercase; letter-spacing:0.03em; }
+  .menu-item-dots { flex:1; border-bottom:1px dotted #6b5b3e; margin-bottom:0.3rem; min-width:0.5rem; }
+  .menu-item-price { font-size:0.95rem; font-weight:700; white-space:nowrap; }
+  .menu-item-serv { font-size:0.7rem; color:#6b5b3e; white-space:nowrap; }
+  .menu-avail-badge {
+    font-size:0.62rem; font-weight:700; letter-spacing:0.03em; white-space:nowrap;
+    padding:0.15rem 0.45rem; border-radius:2px;
+  }
+  .menu-avail-yes { background:#2f5d3a; color:#fff; }
+  .menu-avail-no { background:#b5442e; color:#fff; }
+  .menu-price-line {
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-size:0.76rem; margin-top:0.3rem;
+  }
+  .menu-price-label { color:#6b5b3e; }
+  .menu-price-val { font-weight:700; }
+  .menu-price-serv { font-weight:400; color:#6b5b3e; font-size:0.68rem; }
+  .menu-price-missing { color:#b5442e; }
+  .menu-mise-warning {
+    font-size:0.7rem; color:#b5442e; background:#fdecea; border:1px solid #e6b3ab;
+    padding:0.3rem 0.5rem; margin-top:0.4rem;
+  }
+  .menu-mise-warning.status-caution {
+    color:#8a6d1a; background:#fdf6e3; border-color:#e6d3a3;
+  }
+  .menu-mise-warning.status-ok {
+    color:#3d6b3d; background:#eef5ee; border-color:#bcd6bc;
+  }
+  .menu-mise-warning.status-neutral {
+    color:#8a7550; background:#f2ecdc; border-color:#cbb994;
+  }
+  .ing-mise-row { display:flex; align-items:center; gap:0.5rem; padding:0.15rem 0 0.3rem 2rem; flex-wrap:wrap; }
+  .ing-mise-check { font-size:0.68rem; color:var(--muted); display:flex; align-items:center; gap:0.3rem; white-space:nowrap; }
+  .ing-mise-producer {
+    font-size:0.7rem; padding:0.25rem 0.35rem; font-family:inherit;
+    border:1px solid var(--line); background:var(--paper); color:var(--ink);
+  }
+  .menu-item-desc { font-size:0.8rem; color:#5b4c34; margin-top:0.25rem; font-style:italic; line-height:1.4; }
+  .menu-item-qty-row { display:flex; align-items:center; gap:0.55rem; margin-top:0.5rem; }
+  .stepper-btn.small { width:1.7rem; height:1.7rem; font-size:0.95rem; }
+  .stepper-value.small { min-width:1.6rem; font-size:1rem; }
+  .menu-item-subtotal { font-size:0.78rem; font-weight:700; color:#2b2116; margin-left:0.2rem; }
+  .menu-progress {
+    font-size:0.78rem;
+    font-weight:700;
+    padding:0.5rem 0.7rem;
+    border:1px solid var(--line);
+    background:var(--active-bg);
+  }
+
+  /* ---- INVENTORY ---- */
+  .inv-search-field { max-width: 420px; }
+  .inv-scan-box { border: 1px solid var(--line); padding: 0.75rem; max-width: 520px; }
+  .inv-scan-box label { display:block; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); font-weight:700; margin-bottom:0.4rem; }
+  #invScanInput { flex:1; min-width:12rem; }
+  .inv-grid {
+    display:grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.85rem;
+    align-items:start;
+  }
+  .inv-letter-head {
+    grid-column: 1 / -1;
+    font-size: 0.72rem;
+    font-weight:700;
+    letter-spacing: 0.08em;
+    color: var(--ink);
+    border-bottom: 2px solid var(--ink);
+    padding: 0.3rem 0.1rem 0.25rem;
+    margin-top: 0.4rem;
+  }
+  .inv-letter-head:first-child { margin-top: 0; }
+  .inv-row {
+    display:flex;
+    flex-direction:column;
+    gap:0.5rem;
+    border: 1px solid var(--line-soft);
+    padding: 0.6rem;
+    background: var(--paper);
+  }
+  .inv-name { font-size:0.82rem; font-weight:700; }
+  .inv-uses { font-size:0.68rem; color:var(--muted); margin-top:0.15rem; }
+  .inv-header-row { display:flex; flex-direction:column; align-items:center; gap:0.4rem; text-align:center; }
+  /* Photo above, quick controls below — same footprint as the Menu tab's
+     dish photo (.menu-item-photo), copied directly here since there's no
+     adjacent text to stretch-match against in this vertical layout.
+     Buttons are normal .icon-btn size, same as everywhere else in the
+     app — not the oversized stepper style used for menu order quantities.
+     Sized as a percentage of the card (not a fixed px) so it actually
+     fills the card at real screen widths instead of leaving dead space
+     around a small fixed box on a 360px+ wide grid column. */
+  .inv-photo-big { width:230px; height:230px; }
+  .inv-photo-big .ing-photo-placeholder { font-size:2.4rem; }
+  .inv-quick-controls { display:flex; align-items:center; gap:0.4rem; }
+  .inv-quick-count { font-size:0.8rem; font-weight:700; min-width:2.2rem; text-align:center; }
+  .inv-quick-count-unit { font-size:0.65rem; color:var(--muted); }
+  .inv-details { margin-top:0.6rem; padding-top:0.6rem; border-top:1px dashed var(--line-soft); display:flex; flex-direction:column; gap:0.55rem; }
+  .inv-settings-overlay {
+    position:fixed; inset:0; background:rgba(0,0,0,0.45);
+    display:flex; align-items:center; justify-content:center;
+    z-index:1000; padding:1rem;
+  }
+  .inv-settings-card {
+    background:var(--paper); border:1px solid var(--ink);
+    max-width:480px; width:100%; max-height:85vh; overflow-y:auto;
+    padding:1rem; display:flex; flex-direction:column; gap:0.6rem;
+  }
+  .inv-settings-head { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; border-bottom:1px solid var(--line); padding-bottom:0.5rem; }
+  .inv-settings-title { font-weight:700; font-size:0.95rem; text-transform:capitalize; }
+  .inv-controls { display:flex; align-items:flex-end; gap:0.9rem; flex-wrap:wrap; }
+  .inv-control-group { display:flex; flex-direction:column; gap:0.25rem; }
+  .inv-control-label {
+    font-size:0.6rem;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    color:var(--muted);
+    font-weight:700;
+  }
+  .inv-unit, .inv-amount {
+    font-family: inherit;
+    border: 1px solid var(--line);
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .inv-unit:focus, .inv-amount:focus { outline: none; border-color: var(--ink); }
+  .inv-unit { min-width:120px; font-size:0.75rem; padding:0.35rem 0.5rem; }
+  .inv-amount { width:5.5rem; font-size:0.75rem; padding:0.35rem 0.5rem; }
+  .inv-total { font-size:0.72rem; font-weight:700; color:var(--ink); white-space:nowrap; }
+  .inv-conv-row {
+    display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;
+    border-top: 1px dashed var(--line-soft); padding-top:0.5rem; margin-top:0.1rem;
+  }
+  .inv-conv-label { font-size:0.68rem; color:var(--muted); white-space:nowrap; }
+  .inv-conv-qty {
+    width:3.5rem; font-size:0.72rem; padding:0.3rem 0.4rem;
+    font-family:inherit; border:1px solid var(--line); background:var(--paper); color:var(--ink);
+  }
+  .inv-conv-unit {
+    min-width:5.5rem; font-size:0.72rem; padding:0.3rem 0.4rem;
+    font-family:inherit; border:1px solid var(--line); background:var(--paper); color:var(--ink);
+  }
+  .inv-conv-qty:focus, .inv-conv-unit:focus { outline:none; border-color:var(--ink); }
+  .inv-conv-hint { font-size:0.62rem; color:var(--muted); line-height:1.3; flex-basis:100%; }
+  .inv-row-low { border-color: #b5442e; }
+  .inv-badge {
+    display:inline-block; font-size:0.58rem; font-weight:700; letter-spacing:0.04em;
+    padding:0.1rem 0.4rem; border-radius:2px; vertical-align:middle; margin-left:0.3rem;
+  }
+  .inv-badge-low { background:#b5442e; color:#fff; }
+  .inv-badge-under { background:var(--active-bg); color:var(--muted); border:1px solid var(--line); }
+  .inv-stock-row {
+    display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;
+    border-top: 1px dashed var(--line-soft); padding-top:0.5rem;
+  }
+  .inv-stock-input {
+    width:4.5rem; font-size:0.72rem; padding:0.3rem 0.4rem;
+    font-family:inherit; border:1px solid var(--line); background:var(--paper); color:var(--ink);
+  }
+  .inv-stock-input:focus { outline:none; border-color:var(--ink); }
+  .inv-stock-hint { font-size:0.62rem; color:var(--muted); line-height:1.3; }
+  .inv-barcode-row, .inv-macro-row { border-top: 1px dashed var(--line-soft); padding-top:0.5rem; }
+  .inv-barcode-chips { display:flex; flex-wrap:wrap; gap:0.3rem; margin:0.35rem 0; }
+  .inv-barcode-chip {
+    font-size:0.68rem; padding:0.15rem 0.4rem; border:1px solid var(--line);
+    background:var(--active-bg); display:inline-flex; align-items:center; gap:0.3rem;
+  }
+  .inv-barcode-remove { border:none; background:none; color:var(--muted); cursor:pointer; font-size:0.65rem; padding:0; }
+  .inv-macro-inputs { display:flex; gap:0.6rem; flex-wrap:wrap; margin-top:0.35rem; }
+  .inv-macro-inputs label { display:flex; flex-direction:column; gap:0.2rem; font-size:0.62rem; color:var(--muted); }
+  .inv-macro-input {
+    width:4.2rem; font-size:0.72rem; padding:0.3rem 0.4rem;
+    font-family:inherit; border:1px solid var(--line); background:var(--paper); color:var(--ink);
+  }
+  .inv-macro-input:focus { outline:none; border-color:var(--ink); }
+
+  /* ---- MENU TEMPLATES ---- */
+  .tpl-row {
+    display:flex; align-items:center; justify-content:space-between; gap:0.6rem; flex-wrap:wrap;
+    border: 1px solid var(--line-soft); padding: 0.6rem 0.75rem;
+  }
+  .tpl-name { font-size:0.8rem; font-weight:700; }
+  .tpl-meta { font-size:0.66rem; color:var(--muted); margin-top:0.15rem; }
+  .tpl-actions { display:flex; gap:0.35rem; flex-wrap:wrap; }
+  .tpl-actions .add-btn { padding:0.3rem 0.55rem; font-size:0.66rem; }
+
+  /* ---- PHOTO UPLOAD ---- */
+  .photo-upload { display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; }
+  .photo-upload-preview { width:64px; height:64px; object-fit:cover; border:1px solid var(--line); flex-shrink:0; }
+  .photo-upload-placeholder {
+    width:64px; height:64px;
+    border:1px dashed var(--line);
+    display:flex; align-items:center; justify-content:center;
+    font-size:0.6rem; color:var(--muted); text-align:center; padding:0.2rem;
+    flex-shrink:0;
+  }
+
+  /* ---- MEAL COUNT STEPPER ---- */
+  .stepper { display:flex; align-items:center; gap:0.7rem; }
+  .stepper-btn {
+    width:2.3rem; height:2.3rem;
+    border:1px solid var(--ink);
+    background:var(--paper);
+    font-size:1.2rem;
+    font-weight:700;
+    cursor:pointer;
+    flex-shrink:0;
+  }
+  .stepper-btn:hover { background:var(--active-bg); }
+  .stepper-value { min-width:3rem; text-align:center; font-size:1.4rem; font-weight:700; }
+</style>
+</head>
+<body>
+
+<div class="tabbar">
+  <button id="tabBtnMenu" class="active" onclick="switchTab('menu')">Menu</button>
+  <button id="tabBtnSystem" onclick="switchTab('system')">System of Cookery</button>
+  <button id="tabBtnRecipe" onclick="switchTab('recipe')">Recipe Card</button>
+  <button id="tabBtnInventory" onclick="switchTab('inventory')">Inventory</button>
+  <button id="tabBtnData" onclick="switchTab('data')">Data</button>
+</div>
+
+<div id="menuTab" class="tab-content active">
+<div class="app" style="grid-template-columns: 1fr max-content;">
+  <!-- LEFT: the menu itself -->
+  <div class="form-pane">
+    <div class="form-header">
+      <div class="eyebrow">The Menu</div>
+      <h1>Select Your Meals</h1>
+    </div>
+
+    <div class="form-body">
+      <div class="field">
+        <label for="templateSelect">Template</label>
+        <select id="templateSelect" onchange="onTemplateSelectChange(this.value)">
+          <option value="">— Select a Template —</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="mDays">Time Amount</label>
+        <select id="mDays" onchange="onTimeAmountChange()">
+          <option value="3">3 days</option>
+          <option value="7" selected>1 week (7 days)</option>
+          <option value="14">2 weeks (14 days)</option>
+          <option value="21">3 weeks (21 days)</option>
+          <option value="30">1 month (30 days)</option>
+        </select>
+      </div>
+      <div class="menu-progress" id="menuProgress">0 / 7 meals selected · $0.00 total</div>
+
+      <div class="menu-sheet" id="menuSheetEl" style="margin-top:0.5rem;">
+        <div id="menuDishList"></div>
+      </div>
+      <input type="file" id="menuPhotoFile" accept="image/*" style="display:none;" onchange="handleMenuPhotoUpload(this)">
+
+      <div class="section-title">Templates (save this week's/month's selections, reload later)</div>
+      <button class="add-btn" onclick="saveMenuTemplate()">💾 Save Current Selections as Template</button>
+      <div id="menuTemplateList" style="display:flex; flex-direction:column; gap:0.5rem;"></div>
+      <div id="templateStatusMsg" class="print-hint" style="min-height:1.2em;"></div>
+    </div>
+
+    <div class="form-footer" style="display:flex; flex-direction:column; gap:0.5rem;">
+      <button class="print-btn" onclick="printMenuCard()">🖨️ Print Menu (Letter, guest copy)</button>
+      <button class="print-btn" onclick="printMenuStages()">🧾 Print Grocery List (80mm)</button>
+    </div>
+  </div>
+
+  <!-- RIGHT: Grocery List + Meals, same look as System of Cookery -->
+  <div class="sys-preview-pane" id="menuPreviewPaneEl">
+    <div class="sys-columns" id="menuColumns"></div>
+  </div>
+</div>
+</div>
+
+<div id="recipeTab" class="tab-content">
+<div class="app">
+  <!-- FORM -->
+  <div class="form-pane">
+    <div class="form-header">
+      <div class="eyebrow">Recipe Grid Builder</div>
+      <h1>Cooking-for-Engineers Format</h1>
+    </div>
+
+    <div class="form-body">
+      <div class="field">
+        <label for="recipeSelect">Recipe (drives Meals)</label>
+        <div style="display:flex; gap:0.4rem;">
+          <select id="recipeSelect" onchange="selectRecipe(parseInt(this.value))"></select>
+          <button class="icon-btn" onclick="addRecipe()" title="Add new recipe">+</button>
+          <button class="icon-btn" onclick="removeActiveRecipe()" title="Remove this recipe">✕</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="rTitle">Recipe Title</label>
+        <input id="rTitle" placeholder="Skillet Chicken Thighs" oninput="onRecipeMetaChange()">
+      </div>
+      <div class="row3">
+        <div class="field"><label for="rPrep">Prep</label><input id="rPrep" placeholder="10 min" oninput="render()"></div>
+        <div class="field"><label for="rCook">Cook</label><input id="rCook" placeholder="25 min" oninput="render()"></div>
+        <div class="field"><label for="rServ">Serves</label><input id="rServ" placeholder="4" oninput="render()"></div>
+      </div>
+
+      <div class="section-title">Menu Details (Menu tab pulls from here)</div>
+      <div class="field">
+        <label for="rPrice">Price</label>
+        <input id="rPrice" placeholder="$14" oninput="onRecipeMetaChange()">
+      </div>
+      <div class="field">
+        <label>Dish Photo</label>
+        <div class="photo-upload">
+          <img id="rPhotoPreview" class="photo-upload-preview" style="display:none;">
+          <div id="rPhotoPlaceholder" class="photo-upload-placeholder">No photo</div>
+          <input type="file" id="rPhotoFile" accept="image/*" style="display:none;" onchange="handlePhotoUpload(this)">
+          <button class="add-btn" onclick="document.getElementById('rPhotoFile').click()">📷 Upload Photo</button>
+          <button class="icon-btn" id="rPhotoRemoveBtn" style="display:none;" onclick="removePhoto()">✕</button>
+        </div>
+      </div>
+      <div class="section-title">Tools Used</div>
+      <div id="toolList" style="display:flex;flex-direction:column;gap:0.4rem;"></div>
+      <button class="add-btn" onclick="addTool()">+ Add Tool</button>
+
+      <div class="section-title">Ingredients (become grid columns)</div>
+      <div id="ingList" style="display:flex;flex-direction:column;gap:0.4rem;"></div>
+      <button class="add-btn" onclick="addIngredient()">+ Add Ingredient</button>
+
+      <div class="section-title">Mise Created (byproducts of making this — e.g. this recipe also yields stock)</div>
+      <div id="miseCreatedList" style="display:flex;flex-direction:column;gap:0.4rem;"></div>
+      <button class="add-btn" onclick="addMiseRow('miseCreated')">+ Add Mise Created</button>
+
+      <div class="section-title">Mise Used (pre-made components this recipe draws from)</div>
+      <div id="miseUsedList" style="display:flex;flex-direction:column;gap:0.4rem;"></div>
+      <button class="add-btn" onclick="addMiseRow('miseUsed')">+ Add Mise Used</button>
+
+      <div class="section-title">Steps (become grid rows) — tap chips for ingredients introduced at that step</div>
+      <div id="stepList" style="display:flex;flex-direction:column;gap:0.5rem;"></div>
+      <button class="add-btn" onclick="addStep()">+ Add Step</button>
+    </div>
+
+    <div class="form-footer">
+      <button class="print-btn" onclick="printReceipt()">🧾 Print to 80mm Receipt</button>
+      <div class="print-hint">Grid rotated: ingredients as columns, steps down the page, tools numbered below steps</div>
+    </div>
+  </div>
+
+  <!-- PREVIEW -->
+  <div class="preview-pane">
+    <div class="sheet" id="recipeSheetEl">
+      <div id="printHeaderEl">
+        <div class="sheet-title" id="pTitle">Untitled Recipe</div>
+        <div class="sheet-desc" id="pDesc"></div>
+        <div class="sheet-meta" id="pMeta"></div>
+      </div>
+      <div id="gridWrap"></div>
+      <ol class="steps-legend" id="pStepsLegend"></ol>
+      <ol class="steps-legend" id="pToolsLegend"></ol>
+    </div>
+  </div>
+</div>
+</div>
+
+<div id="systemTab" class="tab-content">
+<div class="app" style="grid-template-columns: 1fr max-content;">
+  <!-- FORM -->
+  <div class="form-pane">
+    <div class="form-header">
+      <div class="eyebrow">System of Cookery</div>
+      <h1>Batch-Cooking System Chart</h1>
+    </div>
+
+    <div class="form-body">
+      <div class="section-title">Stages (Meal Prep &amp; Meals — Meals includes Weeknight Assembly + Payoff Moments together, printed as one receipt. Grocery List lives on the Menu tab.)</div>
+      <div id="sysStageList" style="display:flex;flex-direction:column;gap:0.6rem;"></div>
+    </div>
+
+    <div class="form-footer">
+      <button class="print-btn" onclick="printSystemChart()">🧾 Print to 80mm Receipt</button>
+      <div class="print-hint">One stage per section, with cut lines between them</div>
+    </div>
+  </div>
+
+  <!-- PREVIEW -->
+  <div class="sys-preview-pane" id="sysPreviewPaneEl">
+    <div class="sys-columns" id="sysColumns"></div>
+  </div>
+</div>
+</div>
+
+<div id="inventoryTab" class="tab-content">
+<div class="app" style="grid-template-columns: 1fr;">
+  <div class="form-pane" style="border-right:none; width:100%;">
+    <div class="form-header">
+      <div class="eyebrow">Inventory</div>
+      <h1>Ingredients Derived From Recipes</h1>
+    </div>
+    <div class="form-body">
+      <div class="inv-scan-box">
+        <label for="invScanInput">Scan Barcode</label>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+          <input type="text" id="invScanInput" placeholder="Click here, then scan with a USB/Bluetooth scanner…" onkeydown="onScanKeydown(event)">
+          <button class="add-btn" onclick="openCameraScanner()">📷 Scan with Phone Camera</button>
+        </div>
+        <div id="invScanResult" class="print-hint"></div>
+      </div>
+      <div class="field inv-search-field">
+        <label for="invSearch">Search Ingredients</label>
+        <input id="invSearch" placeholder="Filter by name…" oninput="setInvSearch(this.value)">
+      </div>
+      <div class="menu-progress" id="invSummary">Nothing to track yet</div>
+      <div class="inv-grid" id="inventoryList"></div>
+      <input type="file" id="ingPhotoFile" accept="image/*" style="display:none;" onchange="handleIngPhotoUpload(this)">
+    </div>
+    <div class="form-footer">
+      <div class="print-hint">Pick a unit from the dropdown (or add your own) and set the amount on hand. Anything at 0 can be sent straight to the Grocery List on the Menu tab.</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div id="dataTab" class="tab-content">
+<div class="app" style="grid-template-columns: 1fr;">
+  <div class="form-pane" style="border-right:none; width:100%;">
+    <div class="form-header">
+      <div class="eyebrow">Data</div>
+      <h1>Import / Export Recipes</h1>
+    </div>
+    <div class="form-body">
+      <div class="field">
+        <label for="recipesJsonBox">Recipes JSON</label>
+        <textarea id="recipesJsonBox" placeholder="Paste a JSON array of recipes here" style="min-height:16rem; font-size:0.72rem; width:100%; font-family:inherit; padding:0.55rem 0.65rem; border:1px solid var(--line);"></textarea>
+      </div>
+      <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <button class="add-btn" onclick="loadRecipesFromJson()">Load JSON</button>
+        <button class="add-btn" onclick="exportRecipesToJson()">Export Current</button>
+        <button class="add-btn" onclick="downloadRecipesJson()">⬇ Download as File</button>
+        <button class="add-btn" onclick="document.getElementById('recipesJsonFile').click()">⬆ Load From File</button>
+        <input type="file" id="recipesJsonFile" accept="application/json,.json" style="display:none;" onchange="loadRecipesFromJsonFile(event)">
+      </div>
+    </div>
+    <div class="form-footer">
+      <div class="print-hint">Export Current dumps every recipe on the Recipe Card tab into the box above — copy it out, or Download as File to save a .json backup. Load JSON (or Load From File) replaces every recipe with whatever's in the box, so export or download first if you want to keep what's there now.</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+function switchTab(name) {
+  ['menu','system','recipe','inventory','data'].forEach(n => {
+    document.getElementById(n + 'Tab').classList.toggle('active', n===name);
+    document.getElementById('tabBtn' + n.charAt(0).toUpperCase() + n.slice(1)).classList.toggle('active', n===name);
+  });
+}
+</script>
+<script>
+// jsPDF's UMD build (v1.4+) attaches to window.jspdf.jsPDF, not a bare global —
+// using `new jsPDF(...)` directly throws a silent ReferenceError, which is why
+// the print buttons appeared to do nothing. This makes both patterns work.
+const jsPDF = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : window.jsPDF;
+
+let ingredients = [{name:'', qty:'', unit:''}, {name:'', qty:'', unit:''}];
+let steps = [{text:'', uses:[], duration:0, timeNote:''}, {text:'', uses:[], duration:0, timeNote:''}];
+// Mise this recipe produces as a byproduct (miseCreated — e.g. a braise that
+// also yields stock) and mise it draws from (miseUsed — pre-made components
+// from Weekend Production). Same {name, qty, unit} shape as ingredients, so
+// they use the same unit dropdown and math. These feed the System of
+// Cookery tab's MISE CREATED / MISE USED sections automatically instead of
+// being hand-typed there.
+let miseCreated = [];
+let miseUsed = [];
+// Tools this recipe needs (e.g. "cast iron skillet", "instant-read
+// thermometer") — just names, no qty/unit. Same registry pattern as
+// ingredient names: once a tool's been typed anywhere, it shows up as a
+// pick from the dropdown everywhere else instead of being retyped.
+let tools = [];
+
+// Shared unit list — the same pick-list backs both the Inventory tab and every
+// ingredient row on the Recipe Card tab, so "cups" typed once is "cups"
+// everywhere, and grocery-list totals can actually be summed instead of just
+// concatenated as free text.
+let unitOptions = ['container', 'can', 'bag', 'bottle', 'box', 'jar', 'each', 'cup', 'tbsp', 'tsp', 'fl oz', 'pint', 'quart', 'gallon', 'oz', 'lb', 'g', 'kg', 'ml', 'l'];
+
+// Fixed-ratio conversions within the same measurement system — these are
+// physical constants, so they convert automatically with no setup. "oz"
+// means weight ounce (as most recipes use it); "fl oz" is the liquid measure
+// — they're deliberately kept separate rather than merged, since conflating
+// them silently would produce wrong amounts.
+const VOLUME_TO_ML = { tsp: 4.92892, tbsp: 14.7868, cup: 236.588, 'fl oz': 29.5735, ml: 1, l: 1000, pint: 473.176, quart: 946.353, gallon: 3785.41 };
+const WEIGHT_TO_G = { g: 1, kg: 1000, oz: 28.3495, lb: 453.592 };
+
+// Normalizes a unit for lookup: lowercase, trimmed, and de-pluralized if the
+// singular form is a known unit (so "cups" and "cup" both resolve).
+function normalizeUnitKey(u) {
+  u = (u || '').trim().toLowerCase();
+  if (VOLUME_TO_ML[u] !== undefined || WEIGHT_TO_G[u] !== undefined) return u;
+  if (u.endsWith('s')) {
+    const singular = u.slice(0, -1);
+    if (VOLUME_TO_ML[singular] !== undefined || WEIGHT_TO_G[singular] !== undefined) return singular;
+  }
+  return u;
+}
+function unitDimension(unit) {
+  const u = normalizeUnitKey(unit);
+  if (VOLUME_TO_ML[u] !== undefined) return 'volume';
+  if (WEIGHT_TO_G[u] !== undefined) return 'weight';
+  return null; // count-based unit (container, can, each...) or a custom word — no fixed ratio exists
+}
+// Automatically converts an amount between two units of the same measurement
+// system (volume<->volume or weight<->weight). Returns null when there's no
+// fixed physical ratio — cross-system (volume<->weight, since that depends on
+// the ingredient's density) and count-based units ("container") aren't
+// auto-convertible; those still rely on the manual package-ratio field.
+function convertUnits(qty, fromUnit, toUnit) {
+  const f = normalizeUnitKey(fromUnit), t = normalizeUnitKey(toUnit);
+  if (!f || !t) return null;
+  if (f === t) return qty;
+  const dim = unitDimension(f);
+  if (!dim || unitDimension(t) !== dim) return null;
+  const table = dim === 'volume' ? VOLUME_TO_ML : WEIGHT_TO_G;
+  return qty * table[f] / table[t];
+}
+
+function promptAddUnit() {
+  const custom = prompt('Add a new unit (e.g. "pint", "crate", "sleeve"):');
+  const trimmed = (custom || '').trim();
+  if (!trimmed) return null;
+  if (!unitOptions.some(u => u.toLowerCase() === trimmed.toLowerCase())) unitOptions.push(trimmed);
+  return trimmed;
+}
+
+// Formats a numeric qty for display, trimming trailing zeros (2.50 -> 2.5, 2.0 -> 2).
+function formatQty(n) {
+  if (!n && n !== 0) return '';
+  return Number(parseFloat(n).toFixed(2)).toString();
+}
+
+// The structured qty+unit as a display string, e.g. "2 cups" — used anywhere
+// the old free-typed "amount" string used to show up.
+function ingredientAmountLabel(ing) {
+  const qty = ing && ing.qty;
+  const unit = (ing && ing.unit || '').trim();
+  if (!qty && !unit) return '';
+  if (qty && unit) return `${formatQty(qty)} ${unit}`;
+  return qty ? formatQty(qty) : unit;
+}
+
+function unitSelectOptions(selected) {
+  const opts = selected && !unitOptions.some(u => u.toLowerCase() === selected.toLowerCase())
+    ? [...unitOptions, selected] : unitOptions;
+  return `<option value="" ${!selected ? 'selected' : ''}>—</option>` +
+    opts.map(u => `<option value="${escapeAttr(u)}" ${selected === u ? 'selected' : ''}>${escapeHtml(u)}</option>`).join('') +
+    `<option value="__add__">+ Add new unit…</option>`;
+}
+
+// Every ingredient name already used anywhere (across all recipes'
+// Ingredients, Mise Created, and Mise Used) — this IS the registry. A
+// locked dropdown means you either pick an exact existing name (so grocery
+// totals, inventory matching, and cost math all combine correctly) or
+// explicitly add a new one — never a stray "Tomatoe" typo silently
+// splitting off from "Tomato" as a phantom duplicate ingredient.
+function knownIngredientNames() {
+  const names = new Set();
+  recipes.forEach(r => {
+    ['ingredients', 'miseCreated', 'miseUsed'].forEach(field => {
+      (r[field] || []).forEach(i => { const n = (i.name || '').trim(); if (n) names.add(n); });
+    });
+  });
+  return Array.from(names).sort((a, b) => a.localeCompare(b));
+}
+// Plain dropdown, same pattern as units — but critically, selecting a name
+// does NOT rebuild the ingredient list. That rebuild-on-every-change was the
+// actual bug: browsers can fire `change` mid keyboard-typeahead-search on a
+// focused select, and rebuilding the list destroyed/recreated the element
+// between keystrokes, which is what "booting me out after one letter" was.
+// Now selecting an existing name just updates the data and refreshes the
+// grid/System of Cookery preview — the list of rows itself is untouched, so
+// typeahead can't be interrupted. "+ Add New..." still does a full rebuild,
+// but that's a single deliberate click, not something typed rapidly.
+function ingNameArray(kind) { return kind === 'ingredients' ? ingredients : miseArray(kind); }
+function promptAddIngredientName() {
+  const custom = prompt('Add a new ingredient name:');
+  return (custom || '').trim() || null;
+}
+function ingredientNameOptions(selected) {
+  const known = knownIngredientNames();
+  const opts = selected && !known.some(n => n.toLowerCase() === selected.toLowerCase())
+    ? [...known, selected] : known;
+  return `<option value="" ${!selected ? 'selected' : ''}>—</option>` +
+    opts.map(n => `<option value="${escapeAttr(n)}" ${selected === n ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('') +
+    `<option value="__add__">+ Add New Ingredient…</option>`;
+}
+function setIngName(kind, i, val) {
+  const arr = ingNameArray(kind);
+  if (val === '__add__') {
+    const added = promptAddIngredientName();
+    arr[i].name = added || arr[i].name;
+    renderForm(); // deliberate discrete action — safe to rebuild here
+    if (kind === 'ingredients') render(); else updatePayoffFromRecipes();
+    return;
+  }
+  arr[i].name = val;
+  if (kind === 'ingredients') render(); else updatePayoffFromRecipes();
+}
+
+// Every tool name already used anywhere across all recipes — same registry
+// idea as knownIngredientNames(), so "Dutch oven" typed once is selectable
+// everywhere after, no retyping/typos.
+function knownToolNames() {
+  const names = new Set();
+  recipes.forEach(r => (r.tools || []).forEach(t => { const n = (t || '').trim(); if (n) names.add(n); }));
+  tools.forEach(t => { const n = (t || '').trim(); if (n) names.add(n); });
+  return Array.from(names).sort((a, b) => a.localeCompare(b));
+}
+// Plain dropdown, same pattern as ingredient names — a <select> of every
+// known tool plus a "+ Add New Tool…" option that prompts for a custom
+// name. Selecting an existing tool does NOT rebuild the row list (avoids
+// interrupting keyboard typeahead); "+ Add New..." is a discrete click, so
+// a full rebuild there is safe.
+function toolNameOptions(selected) {
+  const known = knownToolNames();
+  const opts = selected && !known.some(n => n.toLowerCase() === selected.toLowerCase())
+    ? [...known, selected] : known;
+  return `<option value="" ${!selected ? 'selected' : ''}>—</option>` +
+    opts.map(n => `<option value="${escapeAttr(n)}" ${selected === n ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('') +
+    `<option value="__add__">+ Add New Tool…</option>`;
+}
+function promptAddToolName() {
+  const custom = prompt('Add a new tool:');
+  return (custom || '').trim() || null;
+}
+function setToolName(i, val) {
+  if (val === '__add__') {
+    const added = promptAddToolName();
+    tools[i] = added || tools[i];
+    renderToolRows(); // discrete click, safe to rebuild — same reasoning as setIngName's "+ Add New..." path
+    render();
+    return;
+  }
+  tools[i] = val;
+  render(); // no rebuild — avoids interrupting select typeahead, same as setIngName
+}
+function addTool() { tools.push(''); renderToolRows(); }
+function removeTool(i) { tools.splice(i, 1); renderToolRows(); render(); }
+function moveTool(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= tools.length) return;
+  [tools[i], tools[j]] = [tools[j], tools[i]];
+  renderToolRows();
+}
+function renderToolRows() {
+  const box = document.getElementById('toolList');
+  if (!box) return;
+  box.innerHTML = tools.map((t, i) => `
+    <div class="ing-row">
+      <div class="reorder-btns">
+        <button class="icon-btn small" ${i===0?'disabled':''} onclick="moveTool(${i},-1)">↑</button>
+        <button class="icon-btn small" ${i===tools.length-1?'disabled':''} onclick="moveTool(${i},1)">↓</button>
+      </div>
+      <select class="name" onchange="setToolName(${i}, this.value)">${toolNameOptions(t)}</select>
+      <button class="icon-btn" onclick="removeTool(${i})">✕</button>
+    </div>
+  `).join('') || '<div class="empty-note">None yet</div>';
+}
+
+function codeFor(i) { return String.fromCharCode(65 + i); } // A, B, C...
+
+function addIngredient() { ingredients.push({name:'', qty:'', unit:'', isMise:false, producedBy:''}); renderForm(); }
+function setIngredientUnit(i, val) {
+  if (val === '__add__') {
+    const added = promptAddUnit();
+    ingredients[i].unit = added || ingredients[i].unit;
+  } else {
+    ingredients[i].unit = val;
+  }
+  renderForm();
+  render();
+}
+function removeIngredient(i) {
+  ingredients.splice(i,1);
+  // remove references from steps, shift indices down
+  steps.forEach(s => {
+    s.uses = s.uses.filter(u => u !== i).map(u => u > i ? u - 1 : u);
+  });
+  renderForm(); render();
+}
+function moveIngredient(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= ingredients.length) return;
+  [ingredients[i], ingredients[j]] = [ingredients[j], ingredients[i]];
+  // Steps reference ingredients by index (for the grid-column letter codes),
+  // so swapping two ingredients' positions means swapping every step's
+  // reference to those same two indices too — otherwise a step that used to
+  // point at "Flour" would silently start pointing at whatever moved into
+  // that slot instead.
+  steps.forEach(s => {
+    s.uses = s.uses.map(u => u === i ? j : u === j ? i : u);
+  });
+  renderForm(); render();
+}
+
+// Generic add/remove/unit-change for both Mise Created and Mise Used rows —
+// field is 'miseCreated' or 'miseUsed', mapping to the matching global array.
+function miseArray(field) { return field === 'miseUsed' ? miseUsed : miseCreated; }
+function addMiseRow(field) { miseArray(field).push({name:'', qty:'', unit:''}); renderForm(); updatePayoffFromRecipes(); }
+function removeMiseRow(field, i) { miseArray(field).splice(i,1); renderForm(); updatePayoffFromRecipes(); }
+function moveMiseRow(field, i, dir) {
+  const arr = miseArray(field);
+  const j = i + dir;
+  if (j < 0 || j >= arr.length) return;
+  [arr[i], arr[j]] = [arr[j], arr[i]];
+  renderForm(); updatePayoffFromRecipes();
+}
+function setMiseUnit(field, i, val) {
+  const arr = miseArray(field);
+  if (val === '__add__') {
+    const added = promptAddUnit();
+    arr[i].unit = added || arr[i].unit;
+  } else {
+    arr[i].unit = val;
+  }
+  renderForm();
+  updatePayoffFromRecipes();
+}
+function renderMiseRows() {
+  const boxes = { miseCreated: document.getElementById('miseCreatedList'), miseUsed: document.getElementById('miseUsedList') };
+  ['miseCreated', 'miseUsed'].forEach(field => {
+    const box = boxes[field];
+    if (!box) return;
+    const arr = miseArray(field);
+    box.innerHTML = arr.map((m, i) => `
+      <div class="ing-row">
+        <div class="reorder-btns">
+          <button class="icon-btn small" ${i===0?'disabled':''} onclick="moveMiseRow('${field}',${i},-1)">↑</button>
+          <button class="icon-btn small" ${i===arr.length-1?'disabled':''} onclick="moveMiseRow('${field}',${i},1)">↓</button>
+        </div>
+        <select class="name" onchange="setIngName('${field}', ${i}, this.value)">${ingredientNameOptions(m.name)}</select>
+        <input class="qty" type="number" min="0" step="any" value="${m.qty || ''}" placeholder="1.2" oninput="miseArray('${field}')[${i}].qty=parseFloat(this.value)||''; updatePayoffFromRecipes();">
+        <select class="unit" onchange="setMiseUnit('${field}', ${i}, this.value)">${unitSelectOptions(m.unit)}</select>
+        <button class="icon-btn" onclick="removeMiseRow('${field}', ${i})">✕</button>
+      </div>
+    `).join('') || '<div class="empty-note">None yet</div>';
+  });
+}
+function addStep() { steps.push({text:'', uses:[], duration:0, timeNote:''}); renderForm(); }
+function moveStep(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= steps.length) return;
+  [steps[i], steps[j]] = [steps[j], steps[i]];
+  renderForm(); render();
+}
+function removeStep(i) { steps.splice(i,1); renderForm(); render(); }
+function toggleUse(stepIdx, ingIdx) {
+  const uses = steps[stepIdx].uses;
+  const pos = uses.indexOf(ingIdx);
+  if (pos >= 0) uses.splice(pos,1); else uses.push(ingIdx);
+  renderForm(); render();
+}
+
+function escapeHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escapeAttr(s) { return escapeHtml(s).replace(/"/g,'&quot;'); }
+
+// Single source of truth for the "uses: ..." / description text that used to be
+// typed in separately — now derived straight from the ingredients list, so
+// there's only one place (the ingredient rows) that ever needs editing.
+function summarizeIngredients(list, limit = 3) {
+  const names = (list || []).map(i => (i.name || '').trim()).filter(Boolean);
+  if (!names.length) return '';
+  if (names.length <= limit) return names.join(', ');
+  return names.slice(0, limit).join(', ') + ` + ${names.length - limit} more`;
+}
+
+function recipeTitleOptions(selfTitle, selected) {
+  const titles = recipes.filter(r => r.title.trim() && r.title !== selfTitle).map(r => r.title);
+  return `<option value="">— none —</option>` +
+    titles.map(t => `<option value="${escapeAttr(t)}" ${selected === t ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('');
+}
+function setIngMise(i, checked) {
+  ingredients[i].isMise = checked;
+  renderForm(); // structural change (dropdown appears/disappears) — a checkbox click, not typing, so safe to rebuild
+  render();
+}
+function setIngProducedBy(i, val) {
+  ingredients[i].producedBy = val;
+  render(); // no rebuild — same reasoning as name/unit dropdowns, avoids reintroducing the typeahead bug
+}
+
+function renderForm() {
+  const selfTitle = document.getElementById('rTitle').value;
+  renderToolRows();
+  const ingBox = document.getElementById('ingList');
+  ingBox.innerHTML = ingredients.map((ing,i) => {
+    return `
+    <div class="ing-row">
+      <div class="code">${codeFor(i)}</div>
+      <div class="reorder-btns">
+        <button class="icon-btn small" ${i===0?'disabled':''} onclick="moveIngredient(${i},-1)">↑</button>
+        <button class="icon-btn small" ${i===ingredients.length-1?'disabled':''} onclick="moveIngredient(${i},1)">↓</button>
+      </div>
+      <select class="name" onchange="setIngName('ingredients', ${i}, this.value)">${ingredientNameOptions(ing.name)}</select>
+      <input class="qty" type="number" min="0" step="any" value="${ing.qty || ''}" placeholder="2" oninput="ingredients[${i}].qty=parseFloat(this.value)||''; render()">
+      <select class="unit" onchange="setIngredientUnit(${i}, this.value)">${unitSelectOptions(ing.unit)}</select>
+      <button class="icon-btn" onclick="removeIngredient(${i})">✕</button>
+    </div>
+    <div class="ing-mise-row">
+      <label class="ing-mise-check"><input type="checkbox" ${ing.isMise ? 'checked' : ''} onchange="setIngMise(${i}, this.checked)"> This is Mise</label>
+      ${ing.isMise ? `<span class="ing-mise-check">Produced by</span><select class="ing-mise-producer" onchange="setIngProducedBy(${i}, this.value)">${recipeTitleOptions(selfTitle, ing.producedBy)}</select>` : ''}
+    </div>
+  `;
+  }).join('');
+
+  renderMiseRows();
+
+  const stepBox = document.getElementById('stepList');
+  stepBox.innerHTML = steps.map((st,i) => `
+    <div class="step-block">
+      <div class="step-block-head">
+        <span>Step ${i+1}</span>
+        <div class="reorder-btns" style="flex-direction:row;">
+          <button class="icon-btn small" ${i===0?'disabled':''} onclick="moveStep(${i},-1)">↑</button>
+          <button class="icon-btn small" ${i===steps.length-1?'disabled':''} onclick="moveStep(${i},1)">↓</button>
+        </div>
+        <button class="icon-btn" onclick="removeStep(${i})">✕</button>
+      </div>
+      <textarea placeholder="Describe the step" oninput="steps[${i}].text=this.value; render()">${escapeHtml(st.text)}</textarea>
+      <div class="field" style="margin:0;">
+        <label style="margin-bottom:0.15rem;">Duration (min)</label>
+        <div style="display:flex; gap:0.4rem;">
+          <input type="number" min="0" step="1" style="width:5rem;" value="${st.duration || ''}" placeholder="5" oninput="steps[${i}].duration=parseFloat(this.value)||0; render()">
+          <input type="text" style="flex:1;" value="${escapeAttr(st.timeNote || '')}" placeholder="e.g. until simmer, to taste" oninput="steps[${i}].timeNote=this.value; render()">
+        </div>
+      </div>
+      <div class="chip-row">
+        ${ingredients.map((ing,ii) => `
+          <div class="chip ${st.uses.includes(ii) ? 'active':''}" onclick="toggleUse(${i},${ii})">
+            ${codeFor(ii)}${ing.name ? ': '+escapeHtml(ing.name.slice(0,12)) : ''}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function render() {
+  const title = document.getElementById('rTitle').value.trim() || 'Untitled Recipe';
+  const desc = summarizeIngredients(ingredients);
+  const prep = document.getElementById('rPrep').value.trim();
+  const cook = document.getElementById('rCook').value.trim();
+  const serv = document.getElementById('rServ').value.trim();
+
+  document.getElementById('pTitle').textContent = title;
+  document.getElementById('pDesc').textContent = desc;
+  document.getElementById('pDesc').style.display = desc ? 'block' : 'none';
+
+  const metaBits = [];
+  if (prep) metaBits.push(`Prep ${prep}`);
+  if (cook) metaBits.push(`Cook ${cook}`);
+  if (serv) metaBits.push(`Serves ${serv}`);
+  document.getElementById('pMeta').innerHTML = metaBits.map(m=>`<span>${escapeHtml(m)}</span>`).join('');
+
+  const toolNames = tools.map(t => (t || '').trim()).filter(Boolean);
+  renderToolsLegend(toolNames);
+
+  renderGrid();
+  renderStepsColumn();
+}
+
+// active ingredients = have a name
+function activeIngredients() {
+  return ingredients.map((ing,i)=>({...ing, idx:i})).filter(ing => ing.name.trim());
+}
+
+// steps that actually appear in the grid — shared by the grid and the steps
+// column so both always show the exact same set, in the exact same order.
+function activeGridSteps() {
+  return steps.map((s,i)=>({...s, idx:i})).filter(s => s.text.trim() || s.uses.length);
+}
+
+// Each step's proportional share (0–1, summing to 1) of the timeline —
+// used for the grid's column widths AND the steps column's row heights,
+// so the two stay visually aligned.
+function stepShares(activeSteps) {
+  if (!activeSteps.length) return [];
+  const totalDuration = activeSteps.reduce((sum,s) => sum + (s.duration || 0), 0);
+  if (totalDuration > 0) {
+    const raw = activeSteps.map(st => (st.duration || 0) / totalDuration || 0.001);
+    const sum = raw.reduce((a,b) => a+b, 0);
+    return raw.map(v => v / sum);
+  }
+  return activeSteps.map(() => 1 / activeSteps.length);
+}
+
+function renderStepsColumn() {
+  const activeSteps = activeGridSteps();
+  const box = document.getElementById('pStepsLegend');
+  if (!activeSteps.length) {
+    box.innerHTML = '<div class="empty-note">No steps yet</div>';
+    return;
+  }
+  box.innerHTML = activeSteps.map(s => `<li>${escapeHtml(s.text || '(no description)')}</li>`).join('');
+}
+
+// Numbered list of tools, styled and rendered the same way as the steps
+// list above it — this replaces the old single "Tools: a, b, c" line in
+// the header so tools get their own scannable, numbered block further
+// down the receipt instead of being buried at the top.
+function renderToolsLegend(toolNames) {
+  const box = document.getElementById('pToolsLegend');
+  if (!box) return;
+  box.innerHTML = toolNames.length ? toolNames.map(t => `<li>${escapeHtml(t)}</li>`).join('') : '';
+  box.style.display = toolNames.length ? '' : 'none';
+}
+
+// for grid: for each ingredient, find intro step index (first step where it's used)
+function introStepFor(ingIdx) {
+  for (let s = 0; s < steps.length; s++) {
+    if (steps[s].uses.includes(ingIdx)) return s;
+  }
+  return -1;
+}
+
+function fmtMin(m) {
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m/60), r = m%60;
+  return r ? `${h}h${r}m` : `${h}h`;
+}
+
+// Combines a step's numeric duration with its free-text time note (e.g.
+// "until simmer") for display — either can stand alone, or both together.
+function timeLabelFor(st) {
+  const dur = st.duration > 0 ? fmtMin(st.duration) : '';
+  const note = (st.timeNote || '').trim();
+  if (dur && note) return `${dur} · ${note}`;
+  return dur || note;
+}
+
+// Builds the CFE table HTML for a given subset of ingredients (all of them,
+// or one printed chunk) against the full step list. Every chunk gets its own
+// header row and its own timeline row, so each piece reads on its own.
+// forPrint adds the print-scale-up class (bigger receipt-only text) — used
+// for the offscreen print captures but NOT the live on-screen grid.
+function buildGridTableHTML(actIngSubset, activeSteps, labelPct, colPct, forPrint) {
+  let html = `<table class="cfe cfe-classic${forPrint ? ' print-scale-up' : ''}"><colgroup>`;
+  html += `<col style="width:${labelPct}%;">`;
+  colPct.forEach(p => { html += `<col style="width:${p}%;">`; });
+  html += '</colgroup>';
+
+  html += '<thead><tr><th class="step-col">Ingredient</th>';
+  activeSteps.forEach(st => { html += `<th>${st.idx+1}</th>`; });
+  html += '</tr></thead><tbody>';
+
+  actIngSubset.forEach(ing => {
+    const label = ingredientAmountLabel(ing);
+    html += `<tr><td class="ing-label">${escapeHtml(ing.name)}${label ? `<span class="amt">${escapeHtml(label)}</span>` : ''}</td>`;
+    const intro = introStepFor(ing.idx);
+    activeSteps.forEach(st => {
+      if (intro === -1) {
+        html += '<td class="cell-empty">·</td>';
+      } else if (intro === st.idx) {
+        html += `<td class="cell-intro">${escapeHtml(label || codeFor(ing.idx))}</td>`;
+      } else if (intro < st.idx) {
+        html += '<td class="cell-active">|</td>';
+      } else {
+        html += '<td class="cell-empty">·</td>';
+      }
+    });
+    html += '</tr>';
+  });
+
+  // Bottom line of the table IS the timeline: one cell per step column
+  // (to the right of the ingredient label column), each cell exactly as
+  // wide as its column above it, filled to show time spent on that step.
+  // Recreated for every chunk so each piece is self-contained.
+  html += `<tr class="timeline-row"><td class="ing-label">Time</td>`;
+  activeSteps.forEach(st => {
+    const label = timeLabelFor(st);
+    const has = st.duration > 0 || !!label;
+    html += `<td class="${has ? 'timeline-cell' : 'timeline-cell-empty'}">${escapeHtml(label)}</td>`;
+  });
+  html += '</tr>';
+
+  html += '</tbody></table>';
+  return html;
+}
+
+function computeGridColumns(activeSteps) {
+  const labelPct = 24;
+  const remainingPct = 100 - labelPct;
+  const shares = stepShares(activeSteps);
+  const colPct = shares.map(s => s * remainingPct);
+  return { labelPct, colPct };
+}
+
+function renderGrid() {
+  const activeSteps = activeGridSteps();
+  const actIng = activeIngredients();
+
+  if (!actIng.length || !activeSteps.length) {
+    document.getElementById('gridWrap').innerHTML = '<div class="empty-note">Add ingredients and steps to see the grid</div>';
+    return;
+  }
+
+  const totalDuration = activeSteps.reduce((sum,s) => sum + (s.duration || 0), 0);
+  const { labelPct, colPct } = computeGridColumns(activeSteps);
+  let html = buildGridTableHTML(actIng, activeSteps, labelPct, colPct);
+
+  if (totalDuration > 0) {
+    html += `<div style="text-align:right; font-size:0.75rem; color:var(--muted); margin-top:0.3rem;">Total: ${fmtMin(totalDuration)}</div>`;
+  }
+
+  document.getElementById('gridWrap').innerHTML = html;
+}
+// ---------- PRINT (80mm thermal, sideways grid: ingredients as columns, steps down page) ----------
+
+function wrapLine(text, width) {
+  if (!text) return [''];
+  const words = text.split(/\s+/);
+  const lines = [];
+  let cur = '';
+  for (const w of words) {
+    if ((cur + ' ' + w).trim().length > width) { lines.push(cur.trim()); cur = w; }
+    else { cur = (cur + ' ' + w).trim(); }
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [''];
+}
+function centerLine(text, width) {
+  if (text.length >= width) return text;
+  const pad = Math.floor((width - text.length) / 2);
+  return ' '.repeat(pad) + text;
+}
+
+function buildReceiptLines() {
+  const WIDTH = 32;
+  const title = (document.getElementById('rTitle').value.trim() || 'UNTITLED RECIPE').toUpperCase();
+  const desc = summarizeIngredients(ingredients);
+  const prep = document.getElementById('rPrep').value.trim();
+  const cook = document.getElementById('rCook').value.trim();
+  const serv = document.getElementById('rServ').value.trim();
+
+  const actIng = activeIngredients();
+  const activeSteps = steps.map((s,i)=>({...s, idx:i})).filter(s => s.text.trim() || s.uses.length);
+
+  const lines = [];
+  const rule = '-'.repeat(WIDTH);
+
+  lines.push(rule);
+  wrapLine(title, WIDTH).forEach(l => lines.push(centerLine(l, WIDTH)));
+  lines.push(rule);
+  if (desc) { lines.push(''); wrapLine(desc, WIDTH).forEach(l => lines.push(l)); }
+
+  lines.push('');
+  const metaBits = [];
+  if (prep) metaBits.push(`Prep: ${prep}`);
+  if (cook) metaBits.push(`Cook: ${cook}`);
+  if (serv) metaBits.push(`Serves: ${serv}`);
+  metaBits.forEach(m => lines.push(m));
+  lines.push(rule);
+
+  // Legend
+  lines.push('');
+  lines.push('INGREDIENT KEY:');
+  lines.push('');
+  actIng.forEach(ing => {
+    const amt = ingredientAmountLabel(ing);
+    const label = `${codeFor(ing.idx)} = ${ing.name}${amt ? ' ('+amt+')' : ''}`;
+    wrapLine(label, WIDTH).forEach((l,idx) => lines.push(idx===0 ? l : '    '+l));
+  });
+
+  lines.push('');
+  lines.push(rule);
+  lines.push('GRID (ingredients across,');
+  lines.push('steps down, timeline on');
+  lines.push('the bottom line):');
+  lines.push('');
+
+  // Sideways grid: columns = ingredients, rows = steps. One line per step.
+  const colWidth = 3; // e.g. " A "
+  const stepColWidth = 4; // "12. "
+  const perBlock = Math.max(1, Math.floor((WIDTH - stepColWidth) / colWidth));
+  const totalDuration = activeSteps.reduce((sum,s) => sum + (s.duration || 0), 0);
+
+  for (let blockStart = 0; blockStart < actIng.length; blockStart += perBlock) {
+    const blockIng = actIng.slice(blockStart, blockStart + perBlock);
+    const blockWidth = blockIng.length * colWidth;
+
+    // header row
+    let header = ' '.repeat(stepColWidth);
+    blockIng.forEach(ing => { header += codeFor(ing.idx).padStart(colWidth-1,' ') + ' '; });
+    lines.push(header.trimEnd());
+    lines.push('-'.repeat(Math.min(WIDTH, header.length)));
+
+    activeSteps.forEach(st => {
+      let row = String(st.idx+1).padEnd(stepColWidth-1,' ') + ' ';
+      blockIng.forEach(ing => {
+        const intro = introStepFor(ing.idx);
+        let mark = '.';
+        if (intro === st.idx) mark = codeFor(ing.idx);
+        else if (intro !== -1 && intro < st.idx) mark = '|';
+        row += mark.padStart(colWidth-1,' ') + ' ';
+      });
+      lines.push(row.trimEnd());
+    });
+
+    // Bottom line of the table IS the timeline — same column span as the
+    // ingredient columns above, proportioned by each step's duration.
+    if (totalDuration > 0) {
+      let bar = ' '.repeat(stepColWidth);
+      activeSteps.forEach(st => {
+        const dur = st.duration || 0;
+        const share = Math.max(dur > 0 ? 1 : 0, Math.round((dur / totalDuration) * blockWidth));
+        bar += String(st.idx+1).repeat(share);
+      });
+      lines.push(bar.slice(0, WIDTH));
+    }
+
+    lines.push('');
+  }
+
+  if (totalDuration > 0) {
+    lines.push(`Total: ${fmtMin(totalDuration)}`);
+    lines.push('');
+  }
+
+  lines.push(rule);
+  lines.push('STEPS:');
+  lines.push('');
+  activeSteps.forEach((st, i) => {
+    const num = `${i + 1}. `;
+    const label = timeLabelFor(st);
+    const durTag = label ? `[${label}] ` : '';
+    const wrapped = wrapLine(`${durTag}${st.text || '(no description)'}`, WIDTH - num.length);
+    wrapped.forEach((l, idx) => lines.push(idx === 0 ? `${num}${l}` : `${' '.repeat(num.length)}${l}`));
+    lines.push('');
+  });
+
+  lines.push(rule);
+  lines.push(centerLine('Bon Appetit', WIDTH));
+  lines.push(rule);
+
+  return lines;
+}
+
+function rotateCanvasCW(sourceCanvas) {
+  const rotated = document.createElement('canvas');
+  rotated.width = sourceCanvas.height;
+  rotated.height = sourceCanvas.width;
+  const ctx = rotated.getContext('2d');
+  ctx.translate(rotated.width, 0);
+  ctx.rotate(Math.PI / 2);
+  ctx.drawImage(sourceCanvas, 0, 0);
+  return rotated;
+}
+
+async function captureOffscreen(innerHTML, referenceWidthPx) {
+  const wrapper = document.createElement('div');
+  wrapper.style.position = 'fixed';
+  wrapper.style.left = '-9999px';
+  wrapper.style.top = '0';
+  wrapper.style.background = '#ffffff';
+  wrapper.style.width = referenceWidthPx + 'px';
+  wrapper.innerHTML = innerHTML;
+  document.body.appendChild(wrapper);
+  const canvas = await html2canvas(wrapper, { scale: 3, backgroundColor: '#ffffff', useCORS: true });
+  document.body.removeChild(wrapper);
+  return canvas;
+}
+
+async function printReceipt() {
+  document.body.classList.add('print-force-black');
+  try {
+    const paperWidthMM = 80;
+    const marginMM = 3;
+    const gapMM = 2;
+    const printableWidthMM = paperWidthMM - marginMM * 2;
+
+    const headerEl = document.getElementById('printHeaderEl');
+    const gridEl = document.getElementById('gridWrap');
+    // Temporarily bump the header's text size for the print capture only —
+    // added right before capture, removed immediately after, so the live
+    // on-screen preview never sees it.
+    headerEl.classList.add('print-scale-up');
+    const headerCanvas = await html2canvas(headerEl, { scale: 3, backgroundColor: '#ffffff', useCORS: true });
+    headerEl.classList.remove('print-scale-up');
+
+    // One consistent physical scale (mm per source pixel), taken from the
+    // header's true width, applied to every block, so font size stays the
+    // same real size everywhere regardless of rotation.
+    const mmPerPx = printableWidthMM / headerCanvas.width;
+
+    const activeSteps = activeGridSteps();
+    const actIng = activeIngredients();
+    const { labelPct, colPct } = computeGridColumns(activeSteps);
+
+    // Figure out how many ingredient rows fit in one rotated chunk. A
+    // chunk's un-rotated height becomes its rotated WIDTH, which must fit
+    // inside the page — that max height (in the same scaled-px units as
+    // headerCanvas) is just headerCanvas.width, since mmPerPx was derived
+    // from it (rotatedWidthPx * mmPerPx <= printableWidthMM  <=>
+    // originalHeightPx <= headerCanvas.width).
+    const pxBudget = headerCanvas.width;
+
+    // Measured from an offscreen capture built with print-scale-up applied
+    // (same as the real chunks below) — measuring from the smaller
+    // on-screen grid here would under-count each row's real printed
+    // height and let chunks come out taller than pxBudget, quietly
+    // triggering the shrink safety-net later and shrinking the bigger
+    // print text back down.
+    const fullGridCanvas = await captureOffscreen(
+      buildGridTableHTML(actIng, activeSteps, labelPct, colPct, true),
+      gridEl.offsetWidth
+    );
+    const rowPx = actIng.length ? fullGridCanvas.height / (actIng.length + 2) : fullGridCanvas.height; // header row + timeline row ≈ 2 rows
+    const maxRowsPerChunk = Math.max(1, Math.floor(pxBudget / rowPx) - 2);
+
+    const chunks = [];
+    for (let i = 0; i < actIng.length; i += maxRowsPerChunk) {
+      chunks.push(actIng.slice(i, i + maxRowsPerChunk));
+    }
+    if (!chunks.length) chunks.push([]);
+
+    // Each chunk becomes its own self-contained mini-table — same step
+    // columns, same timeline row recreated at the bottom — rendered
+    // off-screen, rotated, and stacked down the receipt in order, so the
+    // full ingredient list survives instead of being shrunk to squeeze in.
+    const gridChunkCanvases = [];
+    for (const chunk of chunks) {
+      const html = buildGridTableHTML(chunk, activeSteps, labelPct, colPct, true);
+      const canvas = await captureOffscreen(html, gridEl.offsetWidth);
+      gridChunkCanvases.push(rotateCanvasCW(canvas));
+    }
+
+    // Numbered list (steps or tools) chunked the same way the ingredient
+    // grid is: each chunk's un-rotated height must stay within pxBudget so
+    // its rotated width fits the page. A long list overflows into as many
+    // additional chunks as it needs instead of being squeezed into one
+    // oversized block.
+    //
+    // legendWidthPx is deliberately narrow (NOT the full recipe-card
+    // width) — after rotation, this width becomes the printed LENGTH down
+    // the receipt. Using the full card width was making even a single
+    // short step/tool eat the same length as a full-width block, leaving
+    // a wall of dead space. A compact, fixed reading width keeps each
+    // item's printed length proportional to how much text it actually has.
+    const legendWidthPx = 330;
+    async function buildLegendChunkCanvases(items, referenceWidthPx) {
+      if (!items.length) return [];
+      const fullHtml = `<ol class="steps-legend print-scale-up">${items.map(t => `<li>${escapeHtml(t)}</li>`).join('')}</ol>`;
+      const fullCanvas = await captureOffscreen(fullHtml, referenceWidthPx);
+      const rowPx = fullCanvas.height / items.length;
+      const maxPerChunk = Math.max(1, Math.floor(pxBudget / rowPx));
+      const canvases = [];
+      for (let i = 0; i < items.length; i += maxPerChunk) {
+        const chunk = items.slice(i, i + maxPerChunk);
+        const html = `<ol class="steps-legend print-scale-up">${chunk.map(t => `<li>${escapeHtml(t)}</li>`).join('')}</ol>`;
+        const canvas = await captureOffscreen(html, referenceWidthPx);
+        canvases.push(rotateCanvasCW(canvas));
+      }
+      return canvases;
+    }
+
+    const stepsChunkCanvases = await buildLegendChunkCanvases(
+      activeSteps.map(s => s.text || '(no description)'),
+      legendWidthPx
+    );
+
+    // Tools list is optional — only include chunks if there's actually
+    // something in it, so an empty recipe doesn't waste paper.
+    const toolNamesForPrint = tools.map(t => (t || '').trim()).filter(Boolean);
+    const toolsChunkCanvases = await buildLegendChunkCanvases(toolNamesForPrint, legendWidthPx);
+
+    document.body.classList.remove('print-force-black');
+
+    const blocks = [headerCanvas, ...gridChunkCanvases, ...stepsChunkCanvases, ...toolsChunkCanvases].map(c => {
+      let w = c.width * mmPerPx;
+      let h = c.height * mmPerPx;
+      // Safety net: if estimation was slightly off and a chunk is still a
+      // touch too wide, shrink just that one rather than let it clip.
+      if (w > printableWidthMM) {
+        const shrink = printableWidthMM / w;
+        w *= shrink;
+        h *= shrink;
+      }
+      return { data: c.toDataURL('image/png'), w, h };
+    });
+
+    const pageHeightMM = marginMM * 2 + blocks.reduce((sum,b) => sum + b.h, 0) + gapMM * (blocks.length - 1);
+
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [paperWidthMM, pageHeightMM] });
+    let y = marginMM;
+    blocks.forEach(b => {
+      doc.addImage(b.data, 'PNG', marginMM, y, b.w, b.h);
+      y += b.h + gapMM;
+    });
+
+    const pdfBlob = doc.output('blob');
+    const pdfUrl = URL.createObjectURL(pdfBlob);
+    const printWindow = window.open(pdfUrl, '_blank');
+    if (!printWindow) {
+      alert('Your browser blocked the print popup. Please allow popups for this page and click print again.');
+      return;
+    }
+    // The PDF load event on the new window is unreliable across browsers (PDFs
+    // render via a built-in viewer, not a normal page load), so print() is
+    // attempted on a delay rather than depending on it — the tab is still
+    // opened either way so the person can print manually if it doesn't fire.
+    setTimeout(() => { try { printWindow.print(); } catch (e) {} }, 600);
+  } catch (err) {
+    document.body.classList.remove('print-force-black');
+    document.getElementById('printHeaderEl')?.classList.remove('print-scale-up');
+    alert('Print failed: ' + err.message);
+  }
+}
+
+const SECTION_LABEL_TYPES = ['RECIPES', 'MISE CREATED', 'MISE USED', 'MISE REMAINING', 'CUSTOM'];
+
+function sectionLabelText(sec) {
+  const base = sec.labelType === 'CUSTOM' ? (sec.customLabel || 'CUSTOM') : sec.labelType;
+  return sec.qualifier ? `${base} (${sec.qualifier})` : base;
+}
+
+// System of Cookery tab now manages only the two "production" stages;
+// Grocery List and Payoff Moments have moved to the Menu tab. Stage
+// `.number` is preserved from the original 4-stage scheme (1 and 4) so
+// updatePayoffFromRecipes() and the "dependent section" check still work.
+let cookeryStages = [
+  { number:2, title:'MEAL PREP', sections:[
+      { labelType:'MEAL PREP', qualifier:'', customLabel:'', items:[], auto:'productionMeals' },
+      { labelType:'MISE CREATED', qualifier:'', customLabel:'', items:[], auto:'miseCreated' }
+    ], footerLabel:'TIME INVESTMENT', footerBig:'—', footerSmall:'assign recipes with prep/cook times to see this add up' },
+  // Weeknight Assembly + Payoff Moments merged into one card/receipt: the
+  // mise gets used, then the meals it produces are the very next thing
+  // printed — same page, no split — so the chronological flow from
+  // "assemble" to "eat" reads as one continuous walk-through instead of two
+  // disconnected receipts you have to sort between.
+  { number:3, title:'MEALS', sections:[
+      { labelType:'READY MEALS', qualifier:'', customLabel:'', items:[], auto:'week1Meals' },
+      { labelType:'MISE USED', qualifier:'', customLabel:'', items:[], auto:'miseUsed' },
+      { labelType:'MISE REMAINING', qualifier:'', customLabel:'', items:[], auto:'miseRemaining' },
+      { labelType:'CUSTOM', qualifier:'', customLabel:'Sophisticated Ready Meals', items:[], auto:'payoff' },
+      { labelType:'MISE USED', qualifier:'', customLabel:'', items:[], auto:'miseUsedPayoff' }
+    ], footerLabel:'THE POINT', footerBig:'This is where the', footerSmall:'system pays you back.' }
+];
+
+let menuStages = [
+  { number:1, title:'GROCERY LIST', sections:[
+      { labelType:'CUSTOM', qualifier:'', customLabel:'From Your Selected Meals', items:[], auto:'grocery' }
+    ], footerLabel:'TIME INVESTMENT', footerBig:'', footerSmall:'' }
+];
+
+// ---- generic stage-group helpers (shared by cookeryStages and menuStages) ----
+function stagesRef(arrName) { return arrName === 'menuStages' ? menuStages : cookeryStages; }
+
+// Stage-section items used to be open-ended strings like "Chicken Stock ~
+// 1.2L" — same problem the ingredient rows had. Now each item is a
+// structured {name, qty, unit} object, using the same shared unit list, so
+// "1.2L" is an actual quantity instead of whatever text someone typed after
+// a "~". migrateStageItem() converts any old plain-string item on the fly so
+// nothing existing breaks.
+function migrateStageItem(it) {
+  if (it && typeof it === 'object') return { name: it.name || '', qty: it.qty || '', unit: it.unit || '' };
+  const raw = (it || '').trim();
+  if (!raw) return { name: '', qty: '', unit: '' };
+  const parts = raw.split('~');
+  const name = parts[0].trim();
+  const amountRaw = (parts[1] || '').trim();
+  if (!amountRaw) return { name, qty: '', unit: '' };
+  const m = amountRaw.match(/^(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?)\s*(.*)$/);
+  let qty = '', unit = amountRaw;
+  if (m) {
+    const parsed = parseQtyToken(m[1]);
+    if (parsed !== null) { qty = parsed; unit = m[2].trim(); }
+  }
+  if (unit && !unitOptions.some(u => u.toLowerCase() === unit.toLowerCase())) unitOptions.push(unit);
+  return { name, qty, unit };
+}
+function stageItemIsEmpty(it) {
+  return it && typeof it === 'object' ? !(it.name || '').trim() : !(it || '').trim();
+}
+function stageItemLabel(it) {
+  if (!(it && typeof it === 'object')) return it || '';
+  const amt = ingredientAmountLabel(it);
+  return amt ? `${it.name} — ${amt}` : (it.name || '');
+}
+
+function addStageSection(arrName, stageIdx) {
+  stagesRef(arrName)[stageIdx].sections.push({ labelType:'CUSTOM', qualifier:'', customLabel:'New Section', items:[{name:'',qty:'',unit:''}] });
+  renderStageGroup(arrName);
+}
+function removeStageSection(arrName, stageIdx, secIdx) {
+  stagesRef(arrName)[stageIdx].sections.splice(secIdx,1);
+  renderStageGroup(arrName);
+}
+function addSectionItem(arrName, stageIdx, secIdx) {
+  stagesRef(arrName)[stageIdx].sections[secIdx].items.push({name:'',qty:'',unit:''});
+  renderStageGroup(arrName);
+}
+function removeSectionItem(arrName, stageIdx, secIdx, itemIdx) {
+  stagesRef(arrName)[stageIdx].sections[secIdx].items.splice(itemIdx,1);
+  renderStageGroup(arrName);
+}
+function moveSectionItem(arrName, stageIdx, secIdx, itemIdx, dir) {
+  const items = stagesRef(arrName)[stageIdx].sections[secIdx].items;
+  const j = itemIdx + dir;
+  if (j < 0 || j >= items.length) return;
+  [items[itemIdx], items[j]] = [items[j], items[itemIdx]];
+  renderStageGroup(arrName);
+}
+function stageMutate(arrName, si, field, val) {
+  stagesRef(arrName)[si][field] = val;
+  renderStageGroup(arrName);
+}
+function stageSectionMutate(arrName, si, ci, field, val) {
+  stagesRef(arrName)[si].sections[ci][field] = val;
+  renderStageGroup(arrName);
+}
+function stageItemMutate(arrName, si, ci, ii, field, val) {
+  stagesRef(arrName)[si].sections[ci].items[ii][field] = val;
+  renderStageGroup(arrName);
+}
+function setStageItemName(arrName, si, ci, ii, val) {
+  const item = stagesRef(arrName)[si].sections[ci].items[ii];
+  if (val === '__add__') {
+    const added = promptAddIngredientName();
+    if (added) {
+      item.name = added;
+      renderStageGroup(arrName); // deliberate discrete action — safe to rebuild
+    }
+    return;
+  }
+  item.name = val;
+  // Deliberately skip renderStageGroup here — selecting from an open
+  // dropdown shouldn't rebuild the list mid-interaction, same fix as the
+  // Recipe Card ingredient/mise name dropdowns.
+}
+function stageItemUnitChange(arrName, si, ci, ii, val) {
+  const item = stagesRef(arrName)[si].sections[ci].items[ii];
+  if (val === '__add__') {
+    const added = promptAddUnit();
+    item.unit = added || item.unit;
+  } else {
+    item.unit = val;
+  }
+  renderStageGroup(arrName);
+}
+
+function renderStagesForm(stages, arrName, formBoxId) {
+  const stageBox = document.getElementById(formBoxId);
+  if (!stageBox) return;
+  stageBox.innerHTML = stages.map((st, si) => `
+    <div class="sys-stage-block">
+      <div class="sys-stage-head">Stage ${st.number}: ${escapeHtml(st.title)}</div>
+
+      ${st.sections.map((sec, ci) => {
+        const dependent = !!sec.auto;
+        const labelRow = `
+          <div class="sys-item-row">
+            <select style="flex:1.2;" ${dependent ? '' : `onchange="stageSectionMutate('${arrName}',${si},${ci},'labelType',this.value)"`} ${dependent?'disabled':''}>
+              ${SECTION_LABEL_TYPES.map(t => `<option value="${t}" ${sec.labelType===t?'selected':''}>${t}</option>`).join('')}
+            </select>
+            <input value="${escapeAttr(sec.qualifier)}" placeholder="detail, e.g. Day 1 shop" ${dependent ? 'disabled' : `oninput="stageSectionMutate('${arrName}',${si},${ci},'qualifier',this.value)"`}>
+            ${dependent ? '' : `<button class="icon-btn" onclick="removeStageSection('${arrName}',${si},${ci})">✕</button>`}
+          </div>
+          ${sec.labelType === 'CUSTOM' ? `
+            <input value="${escapeAttr(sec.customLabel)}" placeholder="Custom label text" oninput="stageSectionMutate('${arrName}',${si},${ci},'customLabel',this.value)">
+          ` : ''}`;
+
+        if (dependent) {
+          const autoHints = {
+            grocery: 'Auto-generated from the meals you\'ve added on the Menu tab, minus what Inventory already covers.',
+            payoff: 'Recipes selected on the Menu tab whose Stage Role is "Payoff Moment."',
+            productionMeals: 'Recipes selected on the Menu tab whose Stage Role is "Meal Prep."',
+            week1Meals: 'Recipes selected on the Menu tab whose Stage Role is "Week 1 Meal."',
+            miseCreated: 'Summed from "Mise Created" on selected Meal Prep recipes only.',
+            miseUsed: 'Summed from "Mise Used" on selected Week 1 Meal recipes only.',
+            miseRemaining: 'Mise Created minus this Mise Used total (Week 1 only), computed automatically.',
+            miseUsedPayoff: 'Summed from "Mise Used" on selected Payoff Moment recipes only.'
+          };
+          // The three recipe-list sections (Weekend Production / Week 1 /
+          // Sophisticated Meals) are where recipes actually get assigned —
+          // not the Menu tab anymore. Each gets its own "+ Add Recipe"
+          // picker pulling from whatever's selected on the Menu tab but not
+          // yet placed anywhere, so the same queued recipe can go into
+          // whichever of the three actually fits it.
+          const roleForAuto = { productionMeals: 'production', week1Meals: 'week1', payoff: 'payoff' };
+          const thisRole = roleForAuto[sec.auto];
+          const addRecipeControl = thisRole ? (() => {
+            const queue = queuedRecipesForAssignment();
+            const selId = `queueSel-${arrName}-${si}-${ci}`;
+            return `
+              <div style="display:flex; gap:0.4rem; margin-top:0.35rem; flex-wrap:wrap;">
+                <select id="${selId}" style="flex:1; min-width:8rem; font-size:0.68rem; padding:0.3rem; font-family:inherit; border:1px solid var(--line); background:var(--paper); color:var(--ink);" ${queue.length ? '' : 'disabled'}>
+                  ${queue.length ? queue.map(r => `<option value="${escapeAttr(r.title)}">${escapeHtml(r.title)}</option>`).join('') : '<option>— nothing needs assignment —</option>'}
+                </select>
+                <button class="add-btn" ${queue.length ? '' : 'disabled'} onclick="assignQueuedRecipe(document.getElementById('${selId}').value, '${thisRole}')">+ Add Recipe</button>
+              </div>`;
+          })() : '';
+
+          // Role sections (Weekend Production / Week 1 / Sophisticated Meals)
+          // get their own individually-controllable row per recipe — each
+          // one reorderable and independently removable, so a misplaced
+          // meal comes back out on its own rather than the whole list being
+          // one flat, uneditable block of text.
+          const itemsHtml = thisRole ? (() => {
+            const list = menuAssignmentOrder[thisRole].filter(title => {
+              const r = recipes.find(rr => rr.title === title);
+              return r && (menuSelections[title] || 0) > 0 && menuAssignments[title] === thisRole;
+            });
+            if (!list.length) return '<div class="empty-note" style="border:none;">No recipes yet</div>';
+            return list.map((title, idx) => {
+              const r = recipes.find(rr => rr.title === title);
+              const qty = menuSelections[title];
+              const uses = summarizeIngredients(r.ingredients);
+              const label = qty > 1 ? `${title} ×${qty}` : title;
+              return `
+                <div class="sys-item-row" style="align-items:flex-start;">
+                  <div class="reorder-btns">
+                    <button class="icon-btn small" ${idx===0?'disabled':''} onclick="moveAssignedRecipe('${thisRole}',${idx},-1)">↑</button>
+                    <button class="icon-btn small" ${idx===list.length-1?'disabled':''} onclick="moveAssignedRecipe('${thisRole}',${idx},1)">↓</button>
+                  </div>
+                  <div style="flex:1; font-size:0.72rem; padding:0.15rem 0;">
+                    <div style="font-weight:700;">${escapeHtml(label)}</div>
+                    ${uses ? `<div style="font-size:0.62rem; color:var(--muted); font-style:italic;">uses: ${escapeHtml(uses)}</div>` : ''}
+                  </div>
+                  <button class="icon-btn" title="Remove from this section" onclick="unassignRecipe('${escapeAttr(title).replace(/'/g,"\\'")}')">✕</button>
+                </div>`;
+            }).join('');
+          })() : (sec.items.map(it => `<li>${escapeHtml(it)}</li>`).join('') || '<li class="empty-note" style="border:none;">No recipes yet</li>');
+
+          return `
+            <div class="sys-section-block">
+              <div class="sys-stage-head" style="font-size:0.68rem;">${escapeHtml(sectionLabelText(sec))}</div>
+              <div style="font-size:0.62rem; color:var(--muted);">${autoHints[sec.auto] || 'Items derived from your recipes — add/edit recipes on the Recipe Card tab.'}</div>
+              ${thisRole
+                ? `<div style="display:flex; flex-direction:column; gap:0.4rem; margin-top:0.2rem;">${itemsHtml}</div>`
+                : `<ul class="sys-bullets" style="margin-top:0.2rem;">${itemsHtml}</ul>`}
+              ${addRecipeControl}
+            </div>`;
+        }
+        return `
+        <div class="sys-section-block">
+          ${labelRow}
+          ${sec.items.map((it, ii) => `
+            <div class="sys-item-row">
+              <div class="reorder-btns">
+                <button class="icon-btn small" ${ii===0?'disabled':''} onclick="moveSectionItem('${arrName}',${si},${ci},${ii},-1)">↑</button>
+                <button class="icon-btn small" ${ii===sec.items.length-1?'disabled':''} onclick="moveSectionItem('${arrName}',${si},${ci},${ii},1)">↓</button>
+              </div>
+              <select style="flex:1.4; font-family:inherit; font-size:inherit; border:1px solid var(--line); background:var(--paper); color:var(--ink); padding:0.4rem 0.3rem;" onchange="setStageItemName('${arrName}',${si},${ci},${ii},this.value)">${ingredientNameOptions(it.name)}</select>
+              <input type="number" min="0" step="any" value="${it.qty || ''}" placeholder="qty" style="flex:0.5; min-width:3.5rem;" oninput="stageItemMutate('${arrName}',${si},${ci},${ii},'qty',parseFloat(this.value)||'')">
+              <select style="flex:0.85; min-width:6rem; font-family:inherit; font-size:inherit; border:1px solid var(--line); background:var(--paper); color:var(--ink); padding:0.4rem 0.3rem;" onchange="stageItemUnitChange('${arrName}',${si},${ci},${ii},this.value)">${unitSelectOptions(it.unit)}</select>
+              <button class="icon-btn" onclick="removeSectionItem('${arrName}',${si},${ci},${ii})">✕</button>
+            </div>
+          `).join('')}
+          <button class="add-btn" onclick="addSectionItem('${arrName}',${si},${ci})">+ Item</button>
+        </div>`;
+      }).join('')}
+      <button class="add-btn" onclick="addStageSection('${arrName}',${si})">+ Section</button>
+
+      <div class="field" style="margin:0;"><label>Footer (${escapeHtml(st.footerLabel)})</label>
+        <input value="${escapeAttr(st.footerBig)}" placeholder="Big line" oninput="stageMutate('${arrName}',${si},'footerBig',this.value)"></div>
+      <div class="field" style="margin:0;">
+        <input value="${escapeAttr(st.footerSmall)}" placeholder="Small line" oninput="stageMutate('${arrName}',${si},'footerSmall',this.value)"></div>
+    </div>
+  `).join('');
+}
+
+function renderStageColumns(stages, columnsBoxId) {
+  const colBox = document.getElementById(columnsBoxId);
+  // Size the columns box to exactly fit however many stages are actually
+  // showing (1 column for Grocery List alone, 2 for Weekend Production +
+  // Meals) instead of a fixed 2-column grid that leaves half the box empty
+  // when there's only one real receipt. 320px per column is the same
+  // per-column width the grid used before, just computed instead of fixed.
+  const colWidth = 320, gap = 12; // px — matches .sys-columns gap (0.75rem)
+  colBox.style.width = (stages.length * colWidth + Math.max(0, stages.length - 1) * gap) + 'px';
+  colBox.style.gridTemplateColumns = `repeat(${stages.length}, 1fr)`;
+  colBox.innerHTML = stages.map(st => `
+    <div class="sys-col">
+      <div class="sys-col-head">
+        <div class="sys-col-num">${st.number}</div>
+        <div class="sys-col-title">${escapeHtml(st.title)}</div>
+      </div>
+      <div class="sys-col-body">
+        ${st.sections.map(sec => `
+          <div>
+            <div class="sys-section-label">${escapeHtml(sectionLabelText(sec))}</div>
+            <ul class="sys-bullets">
+              ${sec.items.filter(i=>!stageItemIsEmpty(i)).map(i => `<li>${escapeHtml(stageItemLabel(i))}</li>`).join('') || '<li class="empty-note" style="border:none;">—</li>'}
+            </ul>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderStageGroup(arrName) {
+  if (arrName === 'menuStages') {
+    renderStagesForm(menuStages, 'menuStages', 'menuStageForm');
+    renderStageColumns(menuStages, 'menuColumns');
+  } else {
+    renderStagesForm(cookeryStages, 'cookeryStages', 'sysStageList');
+    renderStageColumns(cookeryStages, 'sysColumns');
+  }
+}
+
+// ---- System of Cookery tab wrappers (kept as sysRenderForm/sysRender so existing
+// print button wiring doesn't need to change) ----
+function sysRenderForm() {
+  renderStagesForm(cookeryStages, 'cookeryStages', 'sysStageList');
+}
+
+function sysRender() {
+  renderStageColumns(cookeryStages, 'sysColumns');
+}
+
+// ---- Menu tab wrappers (form container was removed from the left panel;
+// renderStageGroup('menuStages') still drives the right-side columns) ----
+function renderMenuStageForm() {
+  // no-op: the Menu tab no longer has a manual grocery/payoff editor form
+}
+function renderMenuStageColumns() {
+  renderStageColumns(menuStages, 'menuColumns');
+}
+
+function sysWrapLine(doc, text, maxWidth) {
+  return doc.splitTextToSize(text || '', maxWidth);
+}
+
+async function printStageGroup(paneElId, columnsElId, tenetsElId) {
+  const paneEl = document.getElementById(paneElId);
+  const columnsEl = document.getElementById(columnsElId);
+  const colEls = Array.from(columnsEl.querySelectorAll('.sys-col'));
+  const bodyEls = Array.from(columnsEl.querySelectorAll('.sys-col-body'));
+  const unclampEls = [paneEl, columnsEl, ...colEls, ...bodyEls];
+  const savedStyles = unclampEls.map(el => el.getAttribute('style'));
+  document.body.classList.add('print-force-black');
+
+  try {
+    const paperWidthMM = 80;
+    const marginMM = 3;
+    const gapMM = 2;
+    const printableWidthMM = paperWidthMM - marginMM * 2;
+
+    // The on-screen layout is a fixed, no-scroll viewport: the pane, each
+    // stage column, and each column's body all cap their own height and
+    // hide/scroll overflow so everything fits the screen at once. That was
+    // clipping content out of the capture. It's also a CSS Grid row, which
+    // by default stretches every column to match the tallest one (Payoff
+    // Moments) — leaving huge blank space at the bottom of shorter stages
+    // like Grocery Shop once each is printed alone. Lifting the height/
+    // overflow caps AND switching to align-items:start fixes both.
+    unclampEls.forEach(el => {
+      el.style.overflow = 'visible';
+      el.style.height = 'auto';
+      el.style.maxHeight = 'none';
+      el.style.flex = 'none';
+      el.style.minHeight = '0';
+    });
+    columnsEl.style.alignItems = 'start';
+
+    // No title/subtitle block in the print — the stage cards speak for
+    // themselves and it was just adding blank space at the top of page 1.
+    const stageCanvases = [];
+    for (const el of colEls) {
+      stageCanvases.push(await html2canvas(el, { scale: 3, backgroundColor: '#ffffff', useCORS: true }));
+    }
+    const tenetsCanvas = tenetsElId ? await html2canvas(document.getElementById(tenetsElId), { scale: 3, backgroundColor: '#ffffff', useCORS: true }) : null;
+
+    // Restore the live layout immediately — everything below just works
+    // with the already-captured canvases.
+    unclampEls.forEach((el, i) => {
+      if (savedStyles[i] === null) el.removeAttribute('style'); else el.setAttribute('style', savedStyles[i]);
+    });
+    document.body.classList.remove('print-force-black');
+
+    // None of these blocks are rotated, so each one independently fills
+    // the page width — no shared-scale concern here (that was only ever
+    // needed for the recipe grid's rotation).
+    const toBlock = (c) => ({
+      data: c.toDataURL('image/png'),
+      w: printableWidthMM,
+      h: (c.height / c.width) * printableWidthMM
+    });
+
+    const stageBlocks = stageCanvases.map(toBlock);
+    const tenetsBlock = tenetsCanvas ? toBlock(tenetsCanvas) : null;
+
+    // jsPDF forces portrait pages to have width <= height: if a stage's
+    // content is shorter than the 80mm paper is wide, it silently swaps
+    // width/height to keep "portrait" true — which is what was making the
+    // first (shorter) receipt print narrower than the paper instead of
+    // full width. Flooring the page height at paperWidthMM guarantees
+    // height >= width so that swap never triggers.
+    const pageContent = (blocks) => Math.max(paperWidthMM, marginMM * 2 + blocks.reduce((s,b) => s + b.h, 0) + gapMM * (blocks.length - 1));
+    const drawPage = (doc, blocks) => {
+      let y = marginMM;
+      blocks.forEach(b => {
+        doc.addImage(b.data, 'PNG', marginMM, y, b.w, b.h);
+        y += b.h + gapMM;
+      });
+    };
+
+    // One stage per page. Last page also gets the closing tenets strip, if any.
+    const pages = [];
+    for (let i = 0; i < stageBlocks.length - 1; i++) pages.push([stageBlocks[i]]);
+    const lastPage = [stageBlocks[stageBlocks.length - 1]];
+    if (tenetsBlock) lastPage.push(tenetsBlock);
+    pages.push(lastPage);
+
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [paperWidthMM, pageContent(pages[0])] });
+    drawPage(doc, pages[0]);
+    for (let i = 1; i < pages.length; i++) {
+      doc.addPage([paperWidthMM, pageContent(pages[i])]);
+      drawPage(doc, pages[i]);
+    }
+
+    const pdfBlob = doc.output('blob');
+    const pdfUrl = URL.createObjectURL(pdfBlob);
+    const printWindow = window.open(pdfUrl, '_blank');
+    if (!printWindow) {
+      alert('Your browser blocked the print popup. Please allow popups for this page and click print again.');
+      return;
+    }
+    setTimeout(() => { try { printWindow.print(); } catch (e) {} }, 600);
+  } catch (err) {
+    // Safety net: if something threw before the normal restore point above,
+    // make sure the live layout isn't left in its unclamped state.
+    unclampEls.forEach((el, i) => {
+      if (el.getAttribute('style') !== savedStyles[i]) {
+        if (savedStyles[i] === null) el.removeAttribute('style'); else el.setAttribute('style', savedStyles[i]);
+      }
+    });
+    document.body.classList.remove('print-force-black');
+    alert('Print failed: ' + err.message);
+  }
+}
+
+function printSystemChart() {
+  return printStageGroup('sysPreviewPaneEl', 'sysColumns', null);
+}
+function printMenuStages() {
+  return printStageGroup('menuPreviewPaneEl', 'menuColumns', null);
+}
+
+// Builds a professional, full-page menu — the kind you'd actually hand a
+// guest — styled after the app's existing "menu-sheet" look (cream paper,
+// Georgia serif, dotted price leaders), rather than the 80mm production
+// receipts which are about the batch-cooking system, not guest-facing.
+function buildMenuCardHTML() {
+  const dishes = recipes.filter(r => r.title.trim());
+  const dateLabel = new Date().toLocaleDateString(undefined, { month:'long', day:'numeric', year:'numeric' });
+  const items = dishes.map(r => `
+    <div style="margin-bottom:1.5rem; break-inside:avoid;">
+      <div style="display:flex; align-items:baseline; gap:0.6rem;">
+        <span style="font-size:1.05rem; font-weight:700; letter-spacing:0.03em; text-transform:uppercase;">${escapeHtml(r.title)}</span>
+        <span style="flex:1; border-bottom:1px dotted #a68e5c; min-width:1rem; position:relative; top:-0.25rem;"></span>
+        ${r.price ? `<span style="font-size:1.05rem; font-weight:700; white-space:nowrap;">${escapeHtml(r.price)}</span>` : ''}
+      </div>
+      ${(summarizeIngredients(r.ingredients) || r.serv) ? `<div style="font-style:italic; font-size:0.85rem; color:#6b5b3e; margin-top:0.35rem; line-height:1.5;">
+        ${escapeHtml(summarizeIngredients(r.ingredients))}${summarizeIngredients(r.ingredients) && r.serv ? ' &nbsp;·&nbsp; ' : ''}${r.serv ? `Serves ${escapeHtml(r.serv)}` : ''}
+      </div>` : ''}
+    </div>
+  `).join('');
+  return `
+    <div style="width:100%; box-sizing:border-box; padding:3.2rem 3.6rem; font-family: Georgia, 'Times New Roman', serif; color:#2b2116; background:#fdfaf3;">
+      <div style="text-align:center; margin-bottom:2.6rem;">
+        <div style="font-size:2rem; letter-spacing:0.35em; font-weight:700;">MENU</div>
+        <div style="width:4rem; height:2px; background:#a68e5c; margin:0.9rem auto;"></div>
+        <div style="font-size:0.8rem; letter-spacing:0.08em; color:#6b5b3e;">${dateLabel}</div>
+      </div>
+      ${items || '<div style="text-align:center; color:#6b5b3e;">No dishes marked "Show on Menu" yet.</div>'}
+    </div>
+  `;
+}
+
+async function printMenuCard() {
+  document.body.classList.add('print-force-black');
+  try {
+    // US Letter, printed like a document you'd hand a guest — not a thermal
+    // receipt. Content is captured once, wide and sharp, then sliced into
+    // as many pages as a long menu needs.
+    const pageWidthMM = 215.9;
+    const pageHeightMM = 279.4;
+    const marginMM = 14;
+    const printableWidthMM = pageWidthMM - marginMM * 2;
+    const printableHeightMM = pageHeightMM - marginMM * 2;
+
+    const refWidthPx = 760;
+    const canvas = await captureOffscreen(buildMenuCardHTML(), refWidthPx);
+    document.body.classList.remove('print-force-black');
+
+    const mmPerPx = printableWidthMM / canvas.width;
+    const pageHeightPx = printableHeightMM / mmPerPx;
+    const pageCount = Math.max(1, Math.ceil(canvas.height / pageHeightPx));
+
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [pageWidthMM, pageHeightMM] });
+    for (let p = 0; p < pageCount; p++) {
+      if (p > 0) doc.addPage([pageWidthMM, pageHeightMM]);
+      const sy = p * pageHeightPx;
+      const sh = Math.min(pageHeightPx, canvas.height - sy);
+      const slice = document.createElement('canvas');
+      slice.width = canvas.width;
+      slice.height = sh;
+      const ctx = slice.getContext('2d');
+      ctx.fillStyle = '#fdfaf3';
+      ctx.fillRect(0, 0, slice.width, slice.height);
+      ctx.drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh);
+      doc.addImage(slice.toDataURL('image/png'), 'PNG', marginMM, marginMM, printableWidthMM, sh * mmPerPx);
+    }
+
+    const pdfBlob = doc.output('blob');
+    const pdfUrl = URL.createObjectURL(pdfBlob);
+    const printWindow = window.open(pdfUrl, '_blank');
+    if (!printWindow) {
+      alert('Your browser blocked the print popup. Please allow popups for this page and click print again.');
+      return;
+    }
+    setTimeout(() => { try { printWindow.print(); } catch (e) {} }, 600);
+  } catch (err) {
+    document.body.classList.remove('print-force-black');
+    alert('Print failed: ' + err.message);
+  }
+}
+
+// ============ MENU TAB: interactive digital dish board ============
+// Dishes shown are every recipe with a title. Name/description/price/photo
+// all come from the Recipe Card tab. Each dish has its own +/- quantity
+// stepper — clicking it adds toward the meal target set by the Time Amount
+// dropdown, and multiplies against that dish's price for a running total.
+let mealTarget = 7;
+let menuSelections = {}; // key: recipe title -> selected quantity
+// Which System of Cookery bucket each selected recipe routes into — a
+// property of THIS plan, not the recipe itself, since the same soup could
+// be a quick Week 1 meal in one plan and a make-ahead Payoff Moment in
+// another. Lives alongside selections in every saved Template, so loading a
+// Template restores both the picks and their assignments together.
+let menuAssignments = {}; // key: recipe title -> 'production' | 'week1' | 'payoff'
+// Explicit per-role ORDER of assigned recipe titles — so each assigned meal
+// is its own row you can reorder and remove individually on System of
+// Cookery, instead of a flat auto-generated bullet list with no controls.
+let menuAssignmentOrder = { production: [], week1: [], payoff: [] };
+
+// ---- Menu Templates: snapshot a week/month's selections, reload them later,
+// and separately trigger the two Inventory-affecting actions ("I shopped for
+// this" / "I've eaten through this") whenever you actually do them — not
+// automatically, since that's tied to real-world timing the app can't know. ----
+let menuTemplates = [
+  {
+    id: 'tpl_sample_week',
+    name: 'Sample Week — Soups',
+    savedAt: Date.now(),
+    // Matches the Inventory demo data: Tomato Basil + Broccoli Cheddar are
+    // fully stocked (available group), Chicken Noodle + Lentil are only
+    // partially stocked (unavailable group, sorted cheapest-to-finish
+    // first) — so selecting this template shows both halves of the Menu
+    // sort working immediately, instead of an empty board.
+    selections: { 'Tomato Basil Soup': 2, 'Broccoli Cheddar Soup': 1, 'Chicken Noodle Soup': 2, 'Lentil Soup': 1 },
+    // All simple standalone soups here, so all Week 1 Meals for this demo —
+    // none are Weekend Production tasks or saved-for-later Payoff Moments.
+    // Reassign any of these from the Menu tab once loaded to see them route
+    // to a different System of Cookery section.
+    assignments: { 'Tomato Basil Soup': 'week1', 'Broccoli Cheddar Soup': 'week1', 'Chicken Noodle Soup': 'week1', 'Lentil Soup': 'week1' },
+    shoppedAt: null,
+    consumedAt: null
+  },
+  {
+    id: 'tpl_mise_demo',
+    name: 'Mise Automation Demo',
+    savedAt: Date.now(),
+    // Shows every piece of the automation working together: "Chicken &
+    // Dumplings" has an ingredient (Chicken Stock, 6 cups) marked as Mise,
+    // linked to "Chicken Stock (Batch)" as its producer. Chicken Stock isn't
+    // in Inventory, so selecting the Dumplings alone would be blocked —
+    // both are pre-selected here so you see the resolved state immediately:
+    // the producer auto-routed to Weekend Production (not Week 1, since
+    // nothing set that manually — it happened because this recipe is
+    // someone's linked producer), MISE CREATED/USED/REMAINING all computed
+    // on System of Cookery (8 cups made, 6 used, 2 remaining), and the
+    // dependent recipe unblocked and sitting in Week 1 Meals.
+    // Try removing "Chicken Stock (Batch)" from the Menu tab afterward —
+    // the warning and the disabled "+" on Chicken & Dumplings come right back.
+    selections: { 'Chicken Stock (Batch)': 1, 'Chicken & Dumplings': 1 },
+    assignments: { 'Chicken Stock (Batch)': 'production', 'Chicken & Dumplings': 'week1' },
+    shoppedAt: null,
+    consumedAt: null
+  }
+]; // {id, name, savedAt, selections:{title:qty}, assignments:{title:role}, shoppedAt, consumedAt}
+
+function findTemplate(id) { return menuTemplates.find(t => t.id === id); }
+
+function showTemplateStatus(msg) {
+  const el = document.getElementById('templateStatusMsg');
+  if (el) el.textContent = msg;
+}
+
+function saveMenuTemplate() {
+  if (!Object.values(menuSelections).some(q => q > 0)) {
+    alert('Select at least one meal above before saving a template.');
+    return;
+  }
+  const suggested = new Date().toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+  const name = prompt('Name this template:', `Week of ${suggested}`);
+  if (!name || !name.trim()) return;
+  menuTemplates.push({
+    id: 'tpl_' + Date.now(),
+    name: name.trim(),
+    savedAt: Date.now(),
+    selections: { ...menuSelections },
+    // Saved alongside selections so a Template covers the whole picture —
+    // Menu tab picks AND where each one routes on System of Cookery — not
+    // just quantities. Loading it later restores both at once.
+    assignments: { ...menuAssignments },
+    shoppedAt: null,
+    consumedAt: null
+  });
+  renderMenuTemplates();
+}
+
+function loadMenuTemplate(id) {
+  const t = findTemplate(id);
+  if (!t) return;
+  menuSelections = { ...t.selections };
+  menuAssignments = { ...(t.assignments || {}) };
+  // Rebuild per-role order from the assignments object — object key order
+  // (insertion order for string keys) is what the template was saved with,
+  // so this reproduces the same row order without needing to store it twice.
+  menuAssignmentOrder = { production: [], week1: [], payoff: [] };
+  Object.entries(menuAssignments).forEach(([title, role]) => {
+    if (menuAssignmentOrder[role]) menuAssignmentOrder[role].push(title);
+  });
+  updatePayoffFromRecipes();
+  const sel = document.getElementById('templateSelect');
+  if (sel) sel.value = id;
+  showTemplateStatus(`Loaded "${t.name}" — replaced your current selections.`);
+}
+
+function onTemplateSelectChange(id) {
+  if (!id) return;
+  loadMenuTemplate(id);
+}
+
+function deleteMenuTemplate(id) {
+  const t = findTemplate(id);
+  if (!t) return;
+  if (!confirm(`Delete the template "${t.name}"? This can't be undone.`)) return;
+  menuTemplates = menuTemplates.filter(x => x.id !== id);
+  renderMenuTemplates();
+}
+
+// "I got everything on the list" — tops off Inventory by exactly the
+// shortfall a template's ingredients had against current on-hand amounts, so
+// stock ends up matching what shopping actually covers, not double-counted.
+function markTemplateShopped(id) {
+  const t = findTemplate(id);
+  if (!t) return;
+  const needs = computeIngredientNeeds(t.selections);
+  const added = [], skipped = [];
+  needs.forEach(s => {
+    const entry = getInvEntry(s.name.toLowerCase());
+    const onHand = invAmountInUnit(entry, s.unit);
+    if (onHand === null) { skipped.push(s.name); return; }
+    const shortfall = Math.max(0, s.qty - onHand);
+    if (shortfall <= 0) return;
+    const nativeAmt = amountToInvUnit(entry, shortfall, s.unit);
+    if (nativeAmt === null) { skipped.push(s.name); return; }
+    entry.count += nativeAmt;
+    added.push(`${s.name} +${formatQty(nativeAmt)} ${entry.unit || s.unit}`);
+  });
+  t.shoppedAt = Date.now();
+  renderInventory();
+  renderMenuTemplates();
+  updatePayoffFromRecipes();
+  let msg = `Marked "${t.name}" as shopped.`;
+  msg += added.length ? ` Added: ${added.join(', ')}.` : ' Nothing to add — already covered.';
+  if (skipped.length) msg += ` Couldn't reconcile: ${skipped.join(', ')} — set a matching unit (or package ratio) on the Inventory tab.`;
+  showTemplateStatus(msg);
+}
+
+// "I've eaten through this" — subtracts the template's full ingredient
+// requirement from on-hand. Can go negative, which is an honest signal you
+// consumed more than you had on hand (e.g. skipped "Mark as Shopped").
+function markTemplateConsumed(id) {
+  const t = findTemplate(id);
+  if (!t) return;
+  if (!confirm(`Subtract "${t.name}"'s ingredients from Inventory on-hand amounts? This can't be undone automatically.`)) return;
+  const needs = computeIngredientNeeds(t.selections);
+  const subtracted = [], skipped = [];
+  needs.forEach(s => {
+    const entry = getInvEntry(s.name.toLowerCase());
+    const nativeAmt = amountToInvUnit(entry, s.qty, s.unit);
+    if (nativeAmt === null) { skipped.push(s.name); return; }
+    entry.count -= nativeAmt;
+    subtracted.push(`${s.name} −${formatQty(nativeAmt)} ${entry.unit || s.unit}`);
+  });
+  t.consumedAt = Date.now();
+  renderInventory();
+  renderMenuTemplates();
+  let msg = `Marked "${t.name}" as consumed.`;
+  msg += subtracted.length ? ` Subtracted: ${subtracted.join(', ')}.` : '';
+  if (skipped.length) msg += ` Couldn't reconcile: ${skipped.join(', ')} — set a matching unit (or package ratio) on the Inventory tab.`;
+  showTemplateStatus(msg);
+}
+
+function renderMenuTemplates() {
+  const sel = document.getElementById('templateSelect');
+  if (sel) {
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— Select a Template —</option>' +
+      menuTemplates.map(t => `<option value="${t.id}" ${current === t.id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('');
+  }
+
+  const box = document.getElementById('menuTemplateList');
+  if (!box) return;
+  if (!menuTemplates.length) {
+    box.innerHTML = '<div class="empty-note">No saved templates yet — select some meals above, then "Save as Template."</div>';
+    return;
+  }
+  box.innerHTML = menuTemplates.map(t => {
+    const dateLabel = new Date(t.savedAt).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+    const mealCount = Object.values(t.selections).reduce((a,b) => a + b, 0);
+    const safeId = t.id;
+    return `
+    <div class="tpl-row">
+      <div class="tpl-info">
+        <div class="tpl-name">${escapeHtml(t.name)}</div>
+        <div class="tpl-meta">${mealCount} meal${mealCount===1?'':'s'} · saved ${dateLabel}${t.shoppedAt ? ' · shopped ✓' : ''}${t.consumedAt ? ' · consumed ✓' : ''}</div>
+      </div>
+      <div class="tpl-actions">
+        <button class="add-btn" onclick="loadMenuTemplate('${safeId}')">Load</button>
+        <button class="add-btn" onclick="markTemplateShopped('${safeId}')">Mark Shopped</button>
+        <button class="add-btn" onclick="markTemplateConsumed('${safeId}')">Mark Consumed</button>
+        <button class="icon-btn" onclick="deleteMenuTemplate('${safeId}')" title="Delete template">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function parsePrice(str) {
+  const n = parseFloat((str || '').replace(/[^0-9.\-]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
+function onTimeAmountChange() {
+  mealTarget = parseInt(document.getElementById('mDays').value, 10) || 0;
+  renderMenuDishes();
+}
+
+// Recipes selected on the Menu tab that don't yet have a System of Cookery
+// assignment — the "needs assignment" queue. Same queue is offered on all
+// three recipe-list sections, since only you know whether a given selected
+// meal belongs in Weekend Production, Week 1, or Sophisticated Meals.
+function queuedRecipesForAssignment() {
+  return recipes.filter(r => r.title.trim() && (menuSelections[r.title] || 0) > 0 && !menuAssignments[r.title]);
+}
+function assignQueuedRecipe(title, role) {
+  if (!title) return;
+  menuAssignments[title] = role;
+  // Remove from any other role's order list first (shouldn't happen via the
+  // queue UI, but keeps state consistent if it's ever reassigned), then add
+  // to this role's order as its own new entry — never merged into anything.
+  Object.keys(menuAssignmentOrder).forEach(r => {
+    menuAssignmentOrder[r] = menuAssignmentOrder[r].filter(t => t !== title);
+  });
+  menuAssignmentOrder[role].push(title);
+  updatePayoffFromRecipes();
+}
+// Pulls a recipe back OUT of a section entirely — back to unassigned, so it
+// shows up in the "needs assignment" queue again instead of staying stuck
+// wherever it was misplaced.
+function unassignRecipe(title) {
+  delete menuAssignments[title];
+  Object.keys(menuAssignmentOrder).forEach(r => {
+    menuAssignmentOrder[r] = menuAssignmentOrder[r].filter(t => t !== title);
+  });
+  updatePayoffFromRecipes();
+}
+function moveAssignedRecipe(role, idx, dir) {
+  const arr = menuAssignmentOrder[role];
+  const j = idx + dir;
+  if (j < 0 || j >= arr.length) return;
+  [arr[idx], arr[j]] = [arr[j], arr[idx]];
+  updatePayoffFromRecipes();
+}
+
+// True if any recipe's ingredients name this title as the "Produced by"
+// recipe for a Mise item — i.e. this recipe's job is to make that mise.
+function isProducerRecipe(title) {
+  return recipes.some(r => (r.ingredients || []).some(ing => ing.isMise && ing.producedBy === title));
+}
+function adjustDishQty(title, delta) {
+  const cur = menuSelections[title] || 0;
+  const next = Math.max(0, cur + delta);
+  menuSelections[title] = next;
+  // Only auto-assign when it's a genuine inference (this recipe is someone's
+  // linked mise producer, so it obviously belongs in Weekend Production).
+  // Otherwise leave it unassigned — it shows up in the "needs assignment"
+  // queue on System of Cookery instead of silently defaulting to Week 1,
+  // since only you know whether a given meal is this week's or a payoff.
+  if (next > 0 && !menuAssignments[title] && isProducerRecipe(title)) {
+    menuAssignments[title] = 'production';
+  }
+  updatePayoffFromRecipes();
+}
+function parseServings(str) {
+  const m = (str || '').match(/[\d.]+/);
+  return m ? parseFloat(m[0]) : null;
+}
+
+function pricePerServing(priceNum, servNum) {
+  if (!servNum) return null;
+  return priceNum / servNum;
+}
+
+// The three prices that matter for a dish, at its base (×1) amounts:
+//  - ingredientCost: what every ingredient in the recipe would cost, full stop
+//    (using Inventory's per-unit prices), regardless of what's on hand.
+//  - missingCost: of that, the part you'd actually have to go buy — the
+//    shortfall between what's needed and what Inventory already has. This is
+//    the "difference of inventory price," and it's what sorts the
+//    unavailable group, because it's the number that actually tells you
+//    which cheap-to-finish meal to plan around what's already in stock.
+//  - available: true only if every ingredient's shortfall is zero (or
+//    there's nothing to check because the recipe has no ingredients).
+// costKnown / missingCostKnown go false the moment any ingredient can't be
+// priced or compared (no Inventory entry, or an unreconcilable unit) — costs
+// built on unknowns get flagged rather than silently treated as free.
+function recipeCostBreakdown(recipe) {
+  let ingredientCost = 0, missingCost = 0, costKnown = true, missingCostKnown = true, available = true;
+  (recipe.ingredients || []).forEach(ing => {
+    const nm = (ing.name || '').trim();
+    if (!nm) return;
+    const qtyNeeded = parseFloat(ing.qty) || 0;
+    const unit = (ing.unit || '').trim();
+    const entry = inventoryState[nm.toLowerCase()];
+    const price = entry && entry.price !== '' ? entry.price : null;
+    const neededInEntryUnit = entry ? amountToInvUnit(entry, qtyNeeded, unit) : null;
+
+    if (price === null || neededInEntryUnit === null) {
+      costKnown = false;
+    } else {
+      ingredientCost += neededInEntryUnit * price;
+    }
+
+    const onHand = entry ? invAmountInUnit(entry, unit) : null;
+    if (onHand === null) {
+      // Can't verify what's on hand for this ingredient at all — treat the
+      // dish as unavailable (conservative: don't claim it's ready when we
+      // can't check), and the missing-cost total as unknown too.
+      available = false;
+      missingCostKnown = false;
+    } else {
+      const shortfall = Math.max(0, qtyNeeded - onHand);
+      if (shortfall > 0) {
+        available = false;
+        if (price === null || neededInEntryUnit === null) {
+          missingCostKnown = false;
+        } else {
+          const shortInEntryUnit = amountToInvUnit(entry, shortfall, unit);
+          if (shortInEntryUnit === null) missingCostKnown = false;
+          else missingCost += shortInEntryUnit * price;
+        }
+      }
+    }
+  });
+  return { ingredientCost, costKnown, missingCost, missingCostKnown, available };
+}
+
+// Sums calories/protein/carbs/fat across a recipe's ingredients, using
+// Inventory's per-unit macro values (same conversion logic as cost). Any
+// A recipe can mark an ingredient as "Mise" and link it to whichever recipe
+// produces it. If that mise ingredient isn't already covered by Inventory,
+// the producing recipe is obligated to happen first — meaning it must also
+// be selected on the Menu tab. This checks that obligation and reports
+// exactly which producer is missing, so the Menu tab can block selecting
+// this recipe further until it's satisfied.
+function unmetMiseDependencies(recipe) {
+  const unmet = [];
+  (recipe.ingredients || []).forEach(ing => {
+    if (!ing.isMise || !ing.producedBy) return;
+    const nm = (ing.name || '').trim();
+    if (!nm) return;
+    const qtyNeeded = parseFloat(ing.qty) || 0;
+    const unit = (ing.unit || '').trim();
+    const entry = inventoryState[nm.toLowerCase()];
+    const onHand = entry ? invAmountInUnit(entry, unit) : null;
+    const covered = onHand !== null && onHand >= qtyNeeded;
+    if (covered) return; // already enough in Inventory — no dependency to enforce
+    const producerSelected = (menuSelections[ing.producedBy] || 0) > 0;
+    if (!producerSelected) unmet.push({ ingredient: nm, producedBy: ing.producedBy });
+  });
+  return unmet;
+}
+
+// ingredient missing macro data or a usable unit conversion makes the whole
+// total "unknown" rather than silently treating it as zero.
+function recipeMacroBreakdown(recipe) {
+  let calories = 0, protein = 0, carbs = 0, fat = 0, known = true;
+  (recipe.ingredients || []).forEach(ing => {
+    const nm = (ing.name || '').trim();
+    if (!nm) return;
+    const qtyNeeded = parseFloat(ing.qty) || 0;
+    const unit = (ing.unit || '').trim();
+    const entry = inventoryState[nm.toLowerCase()];
+    const neededInEntryUnit = entry ? amountToInvUnit(entry, qtyNeeded, unit) : null;
+    if (!entry || neededInEntryUnit === null || entry.calories === '' ) {
+      known = false;
+      return;
+    }
+    calories += neededInEntryUnit * (entry.calories || 0);
+    protein += neededInEntryUnit * (entry.protein || 0);
+    carbs += neededInEntryUnit * (entry.carbs || 0);
+    fat += neededInEntryUnit * (entry.fat || 0);
+  });
+  return { calories, protein, carbs, fat, known };
+}
+
+function renderMenuDishes() {
+  const dishes = recipes.filter(r => r.title.trim());
+
+  // Available meals first (sorted priciest ingredients-in-stock to cheapest
+  // — use up the valuable stuff you already have before it sits), then
+  // unavailable meals (sorted cheapest must-buy cost to priciest — plan the
+  // cheap-to-finish ones first, since that's the actual payoff of tracking
+  // Inventory at all: use what's on hand, then spend as little as possible
+  // on the rest). Dishes where availability itself couldn't be verified sort
+  // to the very bottom of the unavailable group rather than being guessed
+  // into either pile.
+  const withCost = dishes.map(r => ({ r, cost: recipeCostBreakdown(r) }));
+  const available = withCost.filter(d => d.cost.available).sort((a, b) => {
+    const av = a.cost.costKnown ? a.cost.ingredientCost : -Infinity;
+    const bv = b.cost.costKnown ? b.cost.ingredientCost : -Infinity;
+    return bv - av;
+  });
+  const unavailable = withCost.filter(d => !d.cost.available).sort((a, b) => {
+    const av = a.cost.missingCostKnown ? a.cost.missingCost : Infinity;
+    const bv = b.cost.missingCostKnown ? b.cost.missingCost : Infinity;
+    return av - bv;
+  });
+  const ordered = [...available, ...unavailable];
+
+  const box = document.getElementById('menuDishList');
+  let totalQty = 0, totalPrice = 0, totalServings = 0, servingsKnown = false;
+
+  box.innerHTML = ordered.length ? ordered.map(({ r, cost }) => {
+    const key = r.title;
+    const qty = menuSelections[key] || 0;
+    const priceNum = parsePrice(r.price);
+    const miseGap = unmetMiseDependencies(r);
+    const servNum = parseServings(r.serv);
+    totalQty += qty;
+    totalPrice += qty * priceNum;
+    if (servNum !== null) { totalServings += qty * servNum; servingsKnown = true; }
+    const safeKey = key.replace(/'/g, "\\'");
+
+    const menuPerServ = pricePerServing(priceNum, servNum);
+    const ingPerServ = pricePerServing(cost.ingredientCost, servNum);
+    // Plain informational number, no color/threshold styling — "good" food
+    // cost % means different things for house cooking vs. a restaurant menu,
+    // so this just reports the math and leaves the judgment to you.
+    const foodCostPct = (cost.costKnown && priceNum > 0) ? (cost.ingredientCost / priceNum * 100) : null;
+
+    const availBadge = cost.available
+      ? '<span class="menu-avail-badge menu-avail-yes">✓ Available</span>'
+      : '<span class="menu-avail-badge menu-avail-no">Missing ingredients</span>';
+
+    const priceLines = `
+      <div class="menu-price-line">
+        <span class="menu-price-label">Menu Price</span>
+        <span class="menu-price-val">${r.price ? escapeHtml(r.price) : '$0.00'}${menuPerServ !== null ? ` <span class="menu-price-serv">($${menuPerServ.toFixed(2)}/serving)</span>` : ` <span class="menu-price-serv">($0.00/serving)</span>`}</span>
+      </div>
+      <div class="menu-price-line">
+        <span class="menu-price-label">Ingredients</span>
+        <span class="menu-price-val">${cost.costKnown ? '$' + formatQty(cost.ingredientCost) : '$0.00'}${cost.costKnown && ingPerServ !== null ? ` <span class="menu-price-serv">($${ingPerServ.toFixed(2)}/serving)</span>` : ` <span class="menu-price-serv">($0.00/serving)</span>`}</span>
+      </div>
+      <div class="menu-price-line">
+        <span class="menu-price-label">Food Cost</span>
+        <span class="menu-price-val">${(foodCostPct !== null ? foodCostPct : 0).toFixed(1)}%</span>
+      </div>
+      <div class="menu-price-line">
+        <span class="menu-price-label">Must Buy</span>
+        <span class="menu-price-val${cost.available ? '' : ' menu-price-missing'}">${cost.available ? '$0.00' : (cost.missingCostKnown ? '$' + formatQty(cost.missingCost) : '$0.00')}</span>
+      </div>`;
+
+    const macros = recipeMacroBreakdown(r);
+    const macroServ = servNum ? servNum : null;
+    const macroLine = `
+      <div class="menu-price-line">
+        <span class="menu-price-label">Macros</span>
+        <span class="menu-price-val">${macros.known ? Math.round(macros.calories) : 0} cal · ${macros.known ? formatQty(macros.protein) : 0}g protein · ${macros.known ? formatQty(macros.carbs) : 0}g carbs · ${macros.known ? formatQty(macros.fat) : 0}g fat <span class="menu-price-serv">(${macros.known && macroServ ? Math.round(macros.calories / macroServ) : 0} cal/serving)</span></span>
+      </div>`;
+
+    const ridx = recipes.indexOf(r);
+
+    const ingSummary = summarizeIngredients(r.ingredients);
+    const miseStatusLine = miseGap.length
+      ? `<div class="menu-mise-warning">Needs first: ${miseGap.map(g => `${escapeHtml(g.producedBy)} (for ${escapeHtml(g.ingredient)})`).join(', ')} — not in stock, select that recipe too</div>`
+      : `<div class="menu-mise-warning status-ok">✓ Nothing needed first — ready to make</div>`;
+    const assignStatusLine = qty > 0
+      ? (menuAssignments[key]
+          ? `<div class="menu-mise-warning status-ok">✓ Assigned on System of Cookery</div>`
+          : `<div class="menu-mise-warning status-caution">Needs assigning on System of Cookery (Meal Prep / Week 1 / Sophisticated Meals)</div>`)
+      : `<div class="menu-mise-warning status-neutral">Not yet ordered — 0 selected</div>`;
+
+    return `
+    <div class="menu-item${cost.available ? '' : ' menu-item-unavailable'}">
+      <div class="menu-item-photo">${r.photo
+        ? `<img src="${escapeAttr(r.photo)}" alt="" onclick="triggerMenuPhotoUpload(${ridx})" style="cursor:pointer;" title="Click to change photo" onerror="this.remove(); this.parentElement.innerHTML='<div class=&quot;menu-item-photo-placeholder&quot; onclick=&quot;triggerMenuPhotoUpload(${ridx})&quot;><span class=&quot;icon&quot;>📷</span>Click to<br>set photo</div>';">`
+        : `<div class="menu-item-photo-placeholder" onclick="triggerMenuPhotoUpload(${ridx})"><span class="icon">📷</span>Click to<br>set photo</div>`
+      }</div>
+      <div class="menu-item-body">
+        <div class="menu-item-row">
+          <span class="menu-item-name">${escapeHtml(r.title)}</span>
+          <span class="menu-item-dots"></span>
+          <span class="menu-item-serv">Serves ${r.serv ? escapeHtml(r.serv) : '—'}</span>
+          ${availBadge}
+        </div>
+        <div class="menu-item-desc">${ingSummary ? escapeHtml(ingSummary) : '(no ingredients yet)'}</div>
+        ${priceLines}
+        ${macroLine}
+        ${miseStatusLine}
+        <div class="menu-item-qty-row">
+          <button class="stepper-btn small" onclick="adjustDishQty('${safeKey}', -1)">−</button>
+          <div class="stepper-value small">${qty}</div>
+          <button class="stepper-btn small" ${(miseGap.length && qty === 0) ? 'disabled title="Select the recipe(s) listed above first"' : ''} onclick="adjustDishQty('${safeKey}', 1)">+</button>
+          <span class="menu-item-subtotal">$${(qty * priceNum).toFixed(2)}</span>
+        </div>
+        ${assignStatusLine}
+      </div>
+    </div>`;
+  }).join('') : '<div class="empty-note">No recipes yet — add one on the Recipe Card tab.</div>';
+
+  const progress = document.getElementById('menuProgress');
+  if (progress) progress.textContent = `${totalQty} / ${mealTarget} meals selected · $${totalPrice.toFixed(2)} total${servingsKnown ? ` · ${totalServings} servings total` : ''}`;
+
+  requestAnimationFrame(syncMenuPhotoSquares);
+}
+
+// Measures each rendered .menu-item-body's real height and applies it as
+// an explicit width+height on the matching .menu-item-photo box, so the
+// photo (or placeholder) is a true square that exactly spans from the
+// item name down to the bottom of the +/- order row. Re-run on resize
+// too, since text reflow can change a body's height at a narrower width.
+function syncMenuPhotoSquares() {
+  document.querySelectorAll('#menuDishList .menu-item').forEach(item => {
+    const body = item.querySelector('.menu-item-body');
+    const photo = item.querySelector('.menu-item-photo');
+    if (!body || !photo) return;
+    const h = body.offsetHeight;
+    if (h > 0) { photo.style.width = h + 'px'; photo.style.height = h + 'px'; }
+  });
+}
+let menuPhotoResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(menuPhotoResizeTimer);
+  menuPhotoResizeTimer = setTimeout(syncMenuPhotoSquares, 150);
+});
+
+// ============ INVENTORY TAB: ingredients aggregated from all recipes ============
+// Per ingredient: pick a unit from the dropdown (container, can, bag, cup, oz,
+// g...) and set the amount on hand in that unit. The unit list starts with
+// common defaults and grows as you add your own from the dropdown — no
+// separate "modes," just a flat pick-list you build up as you go.
+// Seeded with sample stock so the Menu tab's sort actually demonstrates
+// itself on load: some sample recipes are fully covered (top group, priciest
+// ingredients-in-stock first), some are partially covered (bottom group,
+// cheapest-to-finish first), and a couple have no Inventory data at all
+// (bottom of the bottom group, since availability can't be verified).
+let inventoryState = {
+  'crushed tomatoes':  { unit:'cans',   count:6,   convQty:'', convUnit:'', minStock:2, targetStock:6, price:1.20 },
+  'fresh basil':       { unit:'cup',    count:2,   convQty:'', convUnit:'', minStock:'', targetStock:'', price:3.00 },
+  'heavy cream':       { unit:'cup',    count:2,   convQty:'', convUnit:'', minStock:'', targetStock:'', price:2.50 },
+  'broccoli florets':  { unit:'cups',   count:4,   convQty:'', convUnit:'', minStock:'', targetStock:'', price:1.50 },
+  'shredded cheddar':  { unit:'cups',   count:3,   convQty:'', convUnit:'', minStock:'', targetStock:'', price:4.00 },
+  'shredded chicken':  { unit:'cups',   count:3,   convQty:'', convUnit:'', minStock:'', targetStock:'', price:5.00 },
+  'egg noodles':       { unit:'oz',     count:10,  convQty:'', convUnit:'', minStock:'', targetStock:'', price:0.25 },
+  'chicken broth':     { unit:'cups',   count:3,   convQty:'', convUnit:'', minStock:2, targetStock:8, price:0.60 },
+  'ground cumin':      { unit:'tbsp',   count:5,   convQty:'', convUnit:'', minStock:'', targetStock:'', price:0.15 },
+  'green lentils':     { unit:'cups',   count:0.5, convQty:'', convUnit:'', minStock:1, targetStock:3, price:2.00 },
+  'diced carrot':      { unit:'medium', count:1,   convQty:'', convUnit:'', minStock:'', targetStock:'', price:0.30 }
+  // Minestrone Soup and Kitchen Sink Test Chili have no entries at all —
+  // deliberately, to demonstrate the "can't verify" case at the very bottom.
+}; // key: lowercased ingredient name -> {unit, count, convQty, convUnit, minStock, targetStock, price}
+let invSearchQuery = '';
+
+function getInvEntry(key) {
+  if (!inventoryState[key]) inventoryState[key] = {
+    unit: '', count: 0, convQty: '', convUnit: '', minStock: '', targetStock: '', price: '',
+    barcodes: [], // multiple UPCs/EANs can map to the same ingredient — different brands, one inventory line
+    calories: '', protein: '', carbs: '', fat: '', // per unit (matches entry.unit)
+    photo: ''
+  };
+  if (!inventoryState[key].barcodes) inventoryState[key].barcodes = []; // defensive for entries seeded before this existed
+  if (inventoryState[key].photo === undefined) inventoryState[key].photo = ''; // same, for entries seeded before this existed
+  return inventoryState[key];
+}
+
+// USB/Bluetooth barcode scanners (the cheap ~$30 kind) are HID keyboard
+// emulators — scanning just "types" the digits into whatever's focused, then
+// sends Enter. So the only code needed is: catch Enter in a normal text
+// input and treat whatever's in it as a scanned code. No special driver or
+// pairing logic required — click the field once, then every scan just works.
+function onScanKeydown(e) {
+  if (e.key !== 'Enter') return;
+  const code = e.target.value.trim();
+  e.target.value = '';
+  if (code) handleScannedBarcode(code);
+}
+
+// Shared by both scan paths (USB/Bluetooth scanner and phone camera): looks
+// up which ingredient has this barcode registered and adds 1 unit on hand —
+// the common case for scanning is "I just brought this home." If nothing
+// matches, it tells you so instead of silently doing nothing, and points to
+// where to register the code.
+function handleScannedBarcode(code) {
+  const resultEl = document.getElementById('invScanResult');
+  const match = aggregateIngredients().find(item => {
+    const entry = inventoryState[item.name.toLowerCase()];
+    return entry && entry.barcodes && entry.barcodes.includes(code);
+  });
+  if (match) {
+    const entry = getInvEntry(match.name.toLowerCase());
+    entry.count = (parseFloat(entry.count) || 0) + 1;
+    renderInventory();
+    if (resultEl) resultEl.textContent = `Matched "${match.name}" — added 1 ${entry.unit || 'unit'}. Now ${formatQty(entry.count)} on hand.`;
+  } else {
+    if (resultEl) resultEl.textContent = `No ingredient has barcode "${code}" registered yet — find it below and click "+ Add Barcode," then scan again.`;
+  }
+}
+
+// Phone camera scanning uses the browser's native BarcodeDetector API —
+// no external library, so no CDN dependency or load-timing risk. It's
+// well-supported on Chrome/Edge (desktop and Android) but NOT on Safari or
+// Firefox as of this writing — on those, this clearly says so and points
+// back to the USB/Bluetooth scanner input above, which works everywhere
+// since it's just keyboard input under the hood.
+let scannerStream = null;
+let scannerRAF = null;
+
+async function openCameraScanner() {
+  const overlay = document.createElement('div');
+  overlay.id = 'cameraScannerOverlay';
+  overlay.style.cssText = 'position:fixed; inset:0; background:#000; z-index:1000; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1rem;';
+  overlay.innerHTML = `
+    <video id="scannerVideo" style="max-width:100%; max-height:65vh;" playsinline autoplay muted></video>
+    <div id="scannerStatus" style="color:#fff; font-family:inherit; font-size:0.85rem; text-align:center; padding:0 1rem;">Point camera at a barcode…</div>
+    <button class="add-btn" onclick="closeCameraScanner()">Close</button>
+  `;
+  document.body.appendChild(overlay);
+
+  if (!('BarcodeDetector' in window)) {
+    document.getElementById('scannerStatus').textContent =
+      "This browser doesn't support live camera scanning (needs Chrome or Edge). Use the \"Scan Barcode\" field above with a USB/Bluetooth scanner instead — that works in any browser.";
+    return;
+  }
+
+  try {
+    scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+  } catch (err) {
+    document.getElementById('scannerStatus').textContent = 'Camera access failed: ' + err.message;
+    return;
+  }
+  const video = document.getElementById('scannerVideo');
+  video.srcObject = scannerStream;
+
+  const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] });
+  const scanFrame = async () => {
+    if (!document.getElementById('cameraScannerOverlay')) return; // closed mid-scan
+    try {
+      const codes = await detector.detect(video);
+      if (codes.length) {
+        const code = codes[0].rawValue;
+        closeCameraScanner();
+        handleScannedBarcode(code);
+        return;
+      }
+    } catch (e) { /* keep trying next frame */ }
+    scannerRAF = requestAnimationFrame(scanFrame);
+  };
+  scanFrame();
+}
+
+function closeCameraScanner() {
+  if (scannerRAF) cancelAnimationFrame(scannerRAF);
+  scannerRAF = null;
+  if (scannerStream) { scannerStream.getTracks().forEach(t => t.stop()); scannerStream = null; }
+  const overlay = document.getElementById('cameraScannerOverlay');
+  if (overlay) overlay.remove();
+}
+
+function addInvBarcode(key) {
+  const val = prompt('Enter barcode (UPC/EAN):');
+  const trimmed = (val || '').trim();
+  if (!trimmed) return;
+  const entry = getInvEntry(key);
+  if (!entry.barcodes.includes(trimmed)) entry.barcodes.push(trimmed);
+  renderInventory();
+}
+function removeInvBarcode(key, idx) {
+  getInvEntry(key).barcodes.splice(idx, 1);
+  renderInventory();
+}
+function setInvMacro(key, field, val) {
+  const n = parseFloat(val);
+  getInvEntry(key)[field] = isNaN(n) || n < 0 ? '' : n;
+  renderInventory();
+}
+function setInvPrice(key, val) {
+  const n = parseFloat(val);
+  getInvEntry(key).price = isNaN(n) || n < 0 ? '' : n;
+  renderInventory();
+  updatePayoffFromRecipes(); // recipe costs on the Menu tab depend on inventory prices
+}
+
+// Converts an inventory entry's on-hand count into a target unit (e.g. the
+// unit a recipe calls for). Tries a fixed physical conversion first (g<->kg,
+// cup<->ml, etc. — automatic, no setup needed), then falls back to the
+// manual "1 container = 4 cups" style ratio for count-based units or
+// ingredient-specific conversions (like cups of flour to grams) that have no
+// fixed ratio. Returns null when neither applies — callers must treat null
+// as "don't compare these," not as zero.
+function invAmountInUnit(entry, targetUnit) {
+  const target = (targetUnit || '').trim();
+  if (!target) return null;
+  const entryUnit = (entry.unit || '').trim();
+  if (entryUnit) {
+    const auto = convertUnits(entry.count, entryUnit, target);
+    if (auto !== null) return auto;
+  }
+  const convUnit = (entry.convUnit || '').trim().toLowerCase();
+  if (convUnit && convUnit === target.toLowerCase() && entry.convQty) return entry.count * entry.convQty;
+  return null;
+}
+
+// Converts an amount expressed in a recipe's unit back into an inventory
+// entry's native tracked unit, for adding/subtracting stock. Same
+// automatic-first-then-manual-ratio logic as invAmountInUnit above.
+function amountToInvUnit(entry, amount, fromUnit) {
+  const from = (fromUnit || '').trim();
+  const entryUnit = (entry.unit || '').trim();
+  if (entryUnit) {
+    const auto = convertUnits(amount, from, entryUnit);
+    if (auto !== null) return auto;
+  }
+  const convUnit = (entry.convUnit || '').trim().toLowerCase();
+  if (convUnit && convUnit === from.toLowerCase() && entry.convQty) return amount / entry.convQty;
+  return null;
+}
+
+function setInvConv(key, field, val) {
+  const entry = getInvEntry(key);
+  if (field === 'convQty') {
+    const n = parseFloat(val);
+    entry.convQty = isNaN(n) || n < 0 ? '' : n;
+  } else {
+    entry.convUnit = val;
+  }
+  renderInventory();
+}
+function setInvConvUnit(key, val) {
+  if (val === '__add__') {
+    const added = promptAddUnit();
+    getInvEntry(key).convUnit = added || getInvEntry(key).convUnit;
+  } else {
+    getInvEntry(key).convUnit = val;
+  }
+  renderInventory();
+}
+function setInvStockLevel(key, field, val) {
+  const entry = getInvEntry(key);
+  const n = parseFloat(val);
+  entry[field] = isNaN(n) || n < 0 ? '' : n;
+  renderInventory();
+}
+// Stock status against this entry's own thresholds, in its native unit —
+// 'low' (at/under minimum), 'under-target' (below target but above minimum),
+// or 'ok' (at/above target, or no thresholds set at all).
+function invStockStatus(entry) {
+  if (entry.minStock !== '' && entry.count <= entry.minStock) return 'low';
+  if (entry.targetStock !== '' && entry.count < entry.targetStock) return 'under-target';
+  return 'ok';
+}
+
+function aggregateIngredients() {
+  const map = {};
+  recipes.forEach(r => {
+    (r.ingredients || []).forEach(ing => {
+      const name = (ing.name || '').trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (!map[key]) map[key] = { name, uses: [] };
+      map[key].uses.push({ recipe: r.title || 'Untitled', amount: ingredientAmountLabel(ing) });
+    });
+  });
+  return Object.values(map).sort((a,b) => a.name.localeCompare(b.name));
+}
+
+function setInvSearch(val) {
+  invSearchQuery = val;
+  renderInventory();
+}
+
+function setInvUnit(key, val) {
+  if (val === '__add__') {
+    const added = promptAddUnit();
+    if (!added) { renderInventory(); return; }
+    getInvEntry(key).unit = added;
+  } else {
+    getInvEntry(key).unit = val;
+  }
+  renderInventory();
+}
+function setInvAmount(key, val) {
+  const n = parseFloat(val);
+  getInvEntry(key).count = isNaN(n) || n < 0 ? 0 : n;
+  renderInventory();
+}
+
+// Which row's settings popup is currently open — only one at a time since
+// it's a modal overlay now, not an inline panel. null = closed.
+let invSettingsOpenKey = null;
+function openInvSettings(key) {
+  invSettingsOpenKey = key;
+  renderInvSettingsModal();
+}
+function closeInvSettings() {
+  invSettingsOpenKey = null;
+  renderInvSettingsModal();
+}
+// Quick +/- on the always-visible row — the fast path for "I used one" or
+// "I just bought some," without opening the settings popup at all.
+function adjustInvCount(key, delta) {
+  const entry = getInvEntry(key);
+  const n = (parseFloat(entry.count) || 0) + delta;
+  entry.count = Math.max(0, Math.round(n * 100) / 100);
+  renderInventory();
+  if (invSettingsOpenKey === key) renderInvSettingsModal(); // keep On Hand in sync if its popup happens to be open
+}
+
+// Builds the popup's inner content for whichever ingredient is open —
+// same fields that used to be an inline expanding panel (unit, price,
+// conversions, stock levels, barcodes, macros), just rendered into an
+// overlay instead so the card grid itself never resizes or reflows.
+function buildInvSettingsHTML(key) {
+  const entry = getInvEntry(key);
+  const safeKey = key.replace(/'/g, "\\'");
+  return `
+    <div class="inv-settings-head">
+      <div class="inv-settings-title">${escapeHtml(key)}</div>
+      <button class="icon-btn" onclick="closeInvSettings()">✕</button>
+    </div>
+    <div class="inv-controls">
+      <div class="inv-control-group">
+        <div class="inv-control-label">Unit</div>
+        <select class="inv-unit" onchange="setInvUnit('${safeKey}', this.value)">${unitSelectOptions(entry.unit)}</select>
+      </div>
+      <div class="inv-control-group">
+        <div class="inv-control-label">On Hand</div>
+        <input class="inv-amount" type="number" min="0" step="0.25" value="${entry.count}" onchange="setInvAmount('${safeKey}', this.value)">
+      </div>
+      <div class="inv-control-group">
+        <div class="inv-control-label">Price / ${escapeHtml(entry.unit || 'unit')}</div>
+        <input class="inv-amount" type="number" min="0" step="0.01" value="${entry.price === '' ? '' : entry.price}" placeholder="e.g. 3.50" onchange="setInvPrice('${safeKey}', this.value)">
+      </div>
+      <div class="inv-total">= ${entry.count} ${entry.unit || 'unit'}${entry.count===1?'':'s'} on hand${entry.price !== '' ? ` (${escapeHtml('$' + formatQty(entry.count * entry.price))} total)` : ''}</div>
+    </div>
+    <div class="inv-conv-row">
+      <span class="inv-conv-label">1 ${escapeHtml(entry.unit || 'unit')} =</span>
+      <input class="inv-conv-qty" type="number" min="0" step="any" value="${entry.convQty || ''}" placeholder="e.g. 4" onchange="setInvConv('${safeKey}','convQty',this.value)">
+      <select class="inv-conv-unit" onchange="setInvConvUnit('${safeKey}', this.value)">${unitSelectOptions(entry.convUnit)}</select>
+      <span class="inv-conv-hint">(g↔kg, cup↔ml, oz↔lb etc. convert automatically — only set this for count-based units like "container," or ingredient-specific conversions like cups of flour to grams)</span>
+    </div>
+    <div class="inv-stock-row">
+      <div class="inv-control-group">
+        <div class="inv-control-label">Minimum Stock</div>
+        <input class="inv-stock-input" type="number" min="0" step="any" value="${entry.minStock === '' ? '' : entry.minStock}" placeholder="e.g. 1" onchange="setInvStockLevel('${safeKey}','minStock',this.value)">
+      </div>
+      <div class="inv-control-group">
+        <div class="inv-control-label">Target Stock</div>
+        <input class="inv-stock-input" type="number" min="0" step="any" value="${entry.targetStock === '' ? '' : entry.targetStock}" placeholder="e.g. 4" onchange="setInvStockLevel('${safeKey}','targetStock',this.value)">
+      </div>
+      <span class="inv-stock-hint">both in ${escapeHtml(entry.unit || 'this ingredient\'s unit')} — leave blank to skip the low-stock flag</span>
+    </div>
+    <div class="inv-barcode-row">
+      <div class="inv-control-label">Barcodes (different brands, same ingredient)</div>
+      <div class="inv-barcode-chips">
+        ${entry.barcodes.map((b, bi) => `<span class="inv-barcode-chip">${escapeHtml(b)} <button class="inv-barcode-remove" onclick="removeInvBarcode('${safeKey}', ${bi})">✕</button></span>`).join('') || '<span class="inv-conv-hint">None yet</span>'}
+      </div>
+      <button class="add-btn" onclick="addInvBarcode('${safeKey}')">+ Add Barcode</button>
+    </div>
+    <div class="inv-macro-row">
+      <div class="inv-control-label">Macros / ${escapeHtml(entry.unit || 'unit')}</div>
+      <div class="inv-macro-inputs">
+        <label>Cal <input class="inv-macro-input" type="number" min="0" step="any" value="${entry.calories === '' ? '' : entry.calories}" onchange="setInvMacro('${safeKey}','calories',this.value)"></label>
+        <label>Protein g <input class="inv-macro-input" type="number" min="0" step="any" value="${entry.protein === '' ? '' : entry.protein}" onchange="setInvMacro('${safeKey}','protein',this.value)"></label>
+        <label>Carbs g <input class="inv-macro-input" type="number" min="0" step="any" value="${entry.carbs === '' ? '' : entry.carbs}" onchange="setInvMacro('${safeKey}','carbs',this.value)"></label>
+        <label>Fat g <input class="inv-macro-input" type="number" min="0" step="any" value="${entry.fat === '' ? '' : entry.fat}" onchange="setInvMacro('${safeKey}','fat',this.value)"></label>
+      </div>
+    </div>`;
+}
+// The popup is a single shared overlay element built/removed on demand
+// (same pattern as the barcode camera scanner overlay elsewhere in this
+// file) rather than one hidden panel per ingredient row — cheaper, and
+// there's only ever one open at a time anyway.
+function renderInvSettingsModal() {
+  let overlay = document.getElementById('invSettingsOverlay');
+  if (!invSettingsOpenKey) {
+    if (overlay) overlay.remove();
+    return;
+  }
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'invSettingsOverlay';
+    overlay.className = 'inv-settings-overlay';
+    overlay.onclick = (e) => { if (e.target === overlay) closeInvSettings(); };
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `<div class="inv-settings-card">${buildInvSettingsHTML(invSettingsOpenKey)}</div>`;
+}
+
+function renderInvRow(item) {
+  const key = item.name.toLowerCase();
+  const entry = getInvEntry(key);
+  const usesText = item.uses.map(u => `${escapeHtml(u.recipe)}${u.amount ? ' — ' + escapeHtml(u.amount) : ''}`).join(' · ');
+  const safeKey = key.replace(/'/g, "\\'");
+  const status = invStockStatus(entry);
+  const badge = status === 'low' ? '<span class="inv-badge inv-badge-low">LOW STOCK</span>'
+    : status === 'under-target' ? '<span class="inv-badge inv-badge-under">Below Target</span>' : '';
+
+  return `
+    <div class="inv-row${status === 'low' ? ' inv-row-low' : ''}">
+      <div class="inv-header-row">
+        <div class="ing-photo inv-photo-big" data-ing-key="${escapeAttr(key)}" onclick="triggerIngPhotoUpload(this.dataset.ingKey)" title="Click to set photo">${entry.photo ? `<img src="${escapeAttr(entry.photo)}" alt="" onerror="this.remove(); this.parentElement.innerHTML='<span class=&quot;ing-photo-placeholder&quot;>📷</span>';">` : '<span class="ing-photo-placeholder">📷</span>'}</div>
+        <div class="inv-name-block">
+          <div class="inv-name">${escapeHtml(item.name)} ${badge}</div>
+          <div class="inv-uses">${usesText}</div>
+        </div>
+        <div class="inv-quick-controls">
+          <button class="icon-btn" onclick="adjustInvCount('${safeKey}', -1)">−</button>
+          <div class="inv-quick-count">${formatQty(entry.count)}</div>
+          <span class="inv-quick-count-unit">${escapeHtml(entry.unit || 'unit')}</span>
+          <button class="icon-btn" onclick="adjustInvCount('${safeKey}', 1)">+</button>
+          <button class="icon-btn" onclick="openInvSettings('${safeKey}')" title="Unit, price, stock levels, barcodes, macros">⚙</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderInventory() {
+  const all = aggregateIngredients();
+  const q = invSearchQuery.trim().toLowerCase();
+  const list = q ? all.filter(i => i.name.toLowerCase().includes(q)) : all;
+  const empty = all.length ? '<div class="empty-note">No ingredients match your search.</div>' : '<div class="empty-note">No ingredients yet — add some on the Recipe Card tab.</div>';
+
+  let html = empty;
+  if (list.length) {
+    // list is already alphabetical from aggregateIngredients()'s sort — group
+    // by first letter and drop in a header each time the letter changes, so
+    // the A-Z order is visible instead of just implied.
+    html = '';
+    let currentLetter = null;
+    list.forEach(item => {
+      const letter = (item.name[0] || '#').toUpperCase().replace(/[^A-Z]/, '#');
+      if (letter !== currentLetter) {
+        currentLetter = letter;
+        html += `<div class="inv-letter-head">${letter}</div>`;
+      }
+      html += renderInvRow(item);
+    });
+  }
+  document.getElementById('inventoryList').innerHTML = html;
+
+  const summary = document.getElementById('invSummary');
+  if (summary) {
+    if (!all.length) {
+      summary.textContent = 'Nothing to track yet';
+    } else {
+      const stockedCount = all.filter(i => getInvEntry(i.name.toLowerCase()).count > 0).length;
+      const lowCount = all.filter(i => invStockStatus(getInvEntry(i.name.toLowerCase())) === 'low').length;
+      const lowNote = lowCount ? ` · ${lowCount} low stock` : '';
+      summary.textContent = q
+        ? `${list.length} of ${all.length} ingredients match · ${stockedCount} stocked overall${lowNote}`
+        : `${stockedCount} of ${all.length} ingredients stocked${lowNote}`;
+    }
+  }
+}
+
+// ============ RECIPE <-> PAYOFF MOMENTS INTEGRATION ============
+// System of Cookery's Payoff Moments stage is a DEPENDENT of the recipe list:
+// every INCLUDED recipe's title + description becomes one bullet there, kept in sync live.
+// Recipe data is plain JSON — see FAKE_RECIPES_JSON below, or use the import/export box.
+
+const FAKE_RECIPES_JSON = [
+  {
+    "title": "Tomato Basil Soup",
+    "prep": "10 min", "cook": "25 min", "serv": "4",
+    "ingredients": [
+      { "name": "Crushed Tomatoes", "amount": "2 cans" },
+      { "name": "Fresh Basil", "amount": "1/2 cup" },
+      { "name": "Heavy Cream", "amount": "1/4 cup" }
+    ],
+    "steps": [
+      { "text": "Simmer tomatoes with garlic and onion.", "uses": [0], "duration": 15 },
+      { "text": "Blend smooth, stir in basil and cream.", "uses": [1,2], "duration": 5 },
+      { "text": "Season and serve hot.", "uses": [], "duration": 5 }
+    ]
+  },
+  {
+    "title": "Chicken Noodle Soup",
+    "prep": "15 min", "cook": "30 min", "serv": "6",
+    "ingredients": [
+      { "name": "Shredded Chicken", "amount": "2 cups" },
+      { "name": "Egg Noodles", "amount": "8 oz" },
+      { "name": "Chicken Broth", "amount": "8 cups" }
+    ],
+    "steps": [
+      { "text": "Bring broth to a simmer with carrots and celery.", "uses": [2], "duration": 15 },
+      { "text": "Add noodles and cook until tender.", "uses": [1], "duration": 10 },
+      { "text": "Stir in chicken and heat through.", "uses": [0], "duration": 5 }
+    ]
+  },
+  {
+    "title": "Lentil Soup",
+    "prep": "10 min", "cook": "35 min", "serv": "6",
+    "ingredients": [
+      { "name": "Green Lentils", "amount": "1.5 cups" },
+      { "name": "Ground Cumin", "amount": "1 tbsp" },
+      { "name": "Diced Carrot", "amount": "2 medium" }
+    ],
+    "steps": [
+      { "text": "Sauté carrot and onion with cumin.", "uses": [1,2], "duration": 8 },
+      { "text": "Add lentils and stock, simmer until tender.", "uses": [0], "duration": 25 },
+      { "text": "Blend partially for texture, season, serve.", "uses": [], "duration": 5 }
+    ]
+  },
+  {
+    "title": "Broccoli Cheddar Soup",
+    "prep": "10 min", "cook": "20 min", "serv": "4",
+    "ingredients": [
+      { "name": "Broccoli Florets", "amount": "3 cups" },
+      { "name": "Shredded Cheddar", "amount": "1.5 cups" },
+      { "name": "Heavy Cream", "amount": "1 cup" }
+    ],
+    "steps": [
+      { "text": "Simmer broccoli in stock until tender.", "uses": [0], "duration": 12 },
+      { "text": "Blend partially, stir in cream.", "uses": [2], "duration": 3 },
+      { "text": "Melt in cheddar off heat, serve.", "uses": [1], "duration": 5 }
+    ]
+  },
+  {
+    "title": "Minestrone Soup",
+    "prep": "15 min", "cook": "30 min", "serv": "6",
+    "ingredients": [
+      { "name": "Cannellini Beans", "amount": "1 can" },
+      { "name": "Small Pasta", "amount": "1 cup" },
+      { "name": "Mixed Vegetables", "amount": "3 cups" }
+    ],
+    "steps": [
+      { "text": "Sauté vegetables until softened.", "uses": [2], "duration": 10 },
+      { "text": "Add stock, tomatoes, and beans, simmer.", "uses": [0], "duration": 15 },
+      { "text": "Stir in pasta, cook until al dente.", "uses": [1], "duration": 8 }
+    ]
+  },
+  {
+    "title": "Kitchen Sink Test Chili",
+    "prep": "20 min", "cook": "45 min", "serv": "8",
+    "ingredients": [
+      { "name": "Ground Beef", "amount": "2 lb" },
+      { "name": "Ground Pork", "amount": "1 lb" },
+      { "name": "Diced Onion", "amount": "2 large" },
+      { "name": "Red Onion", "amount": "1 medium" },
+      { "name": "Minced Garlic", "amount": "6 cloves" },
+      { "name": "Kidney Beans", "amount": "2 cans" },
+      { "name": "Black Beans", "amount": "1 can" },
+      { "name": "Pinto Beans", "amount": "1 can" },
+      { "name": "Great Northern Beans", "amount": "1 can" },
+      { "name": "Crushed Tomatoes", "amount": "2 cans" },
+      { "name": "Diced Tomatoes", "amount": "1 can" },
+      { "name": "Fire-Roasted Tomatoes", "amount": "1 can" },
+      { "name": "Tomato Paste", "amount": "3 tbsp" },
+      { "name": "Tomato Sauce", "amount": "1 can" },
+      { "name": "Beef Broth", "amount": "2 cups" },
+      { "name": "Chicken Broth", "amount": "1 cup" },
+      { "name": "Dark Beer", "amount": "1 bottle" },
+      { "name": "Chili Powder", "amount": "3 tbsp" },
+      { "name": "Ancho Chili Powder", "amount": "1 tbsp" },
+      { "name": "Ground Cumin", "amount": "2 tbsp" },
+      { "name": "Smoked Paprika", "amount": "1 tbsp" },
+      { "name": "Cayenne Pepper", "amount": "1 tsp" },
+      { "name": "Chipotle in Adobo", "amount": "2 tbsp" },
+      { "name": "Dried Oregano", "amount": "1 tsp" },
+      { "name": "Bay Leaves", "amount": "2" },
+      { "name": "Diced Bell Pepper", "amount": "2 medium" },
+      { "name": "Diced Poblano", "amount": "1 medium" },
+      { "name": "Diced Jalapeño", "amount": "2 small" },
+      { "name": "Diced Carrot", "amount": "1 medium" },
+      { "name": "Diced Celery", "amount": "1 stalk" },
+      { "name": "Corn Kernels", "amount": "1 cup" },
+      { "name": "Dark Chocolate", "amount": "1 oz" },
+      { "name": "Brown Sugar", "amount": "1 tbsp" },
+      { "name": "Shredded Cheddar", "amount": "1.5 cups" },
+      { "name": "Sour Cream", "amount": "1 cup" },
+      { "name": "Sliced Scallions", "amount": "1/2 cup" }
+    ],
+    "steps": [
+      { "text": "Brown beef, pork, onions, and garlic.", "uses": [0,1,2,3,4], "duration": 12 },
+      { "text": "Add peppers, carrot, celery, spices, and tomato paste, cook until fragrant.", "uses": [25,26,27,28,29,17,18,19,20,21,22,23,24,12], "duration": 6 },
+      { "text": "Stir in tomatoes, sauce, broths, beer, and all beans, bring to a simmer.", "uses": [9,10,11,13,14,15,16,5,6,7,8], "duration": 35 },
+      { "text": "Stir in corn, chocolate, and brown sugar, simmer to finish.", "uses": [30,31,32], "duration": 10 },
+      { "text": "Ladle into bowls, top with cheddar, sour cream, and scallions.", "uses": [33,34,35], "duration": 5 }
+    ]
+  },
+  {
+    "title": "Chicken Stock (Batch)",
+    "prep": "10 min", "cook": "3 hr", "serv": "",
+    "price": "",
+    "ingredients": [
+      { "name": "Chicken Carcass", "qty": 1, "unit": "each" },
+      { "name": "Onion", "qty": 1, "unit": "each" },
+      { "name": "Water", "qty": 8, "unit": "cup" }
+    ],
+    "miseCreated": [
+      { "name": "Chicken Stock", "qty": 8, "unit": "cup" }
+    ],
+    "steps": [
+      { "text": "Simmer carcass, onion, and water for 3 hours.", "uses": [0,1,2], "duration": 180 },
+      { "text": "Strain and cool.", "uses": [], "duration": 15 }
+    ]
+  },
+  {
+    "title": "Chicken & Dumplings",
+    "prep": "15 min", "cook": "20 min", "serv": "4",
+    "price": "12.00",
+    "ingredients": [
+      { "name": "Chicken Stock", "qty": 6, "unit": "cup", "isMise": true, "producedBy": "Chicken Stock (Batch)" },
+      { "name": "Flour", "qty": 1, "unit": "cup" },
+      { "name": "Diced Carrot", "qty": 2, "unit": "medium" }
+    ],
+    "miseUsed": [
+      { "name": "Chicken Stock", "qty": 6, "unit": "cup" }
+    ],
+    "steps": [
+      { "text": "Bring stock to a simmer with carrots.", "uses": [0,2], "duration": 15 },
+      { "text": "Drop dumpling batter and cover.", "uses": [1], "duration": 15 }
+    ]
+  }
+];
+
+let recipes = [];
+let activeRecipeIdx = -1;
+
+function parsePayoffItem(raw) {
+  const m = raw.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
+  if (m) return { title: m[1].trim(), desc: m[2].replace(/^uses:\s*/i,'').trim() };
+  return { title: raw.trim(), desc: '' };
+}
+
+function blankRecipe(title) {
+  return {
+    title: title || 'New Recipe',
+    price: '', photo: '', prep:'', cook:'', serv:'',
+    // Which System of Cookery bucket this recipe routes into once selected
+    // on the Menu tab: 'production' (Weekend Production — this recipe's own
+    // cooking IS the batch/mise-making work), 'week1' (a meal assembled and
+    // eaten this week), or 'payoff' (a meal saved for later, days 8-30,
+    // drawing on leftover/frozen mise). Set once per recipe so it never
+    // needs re-assigning — pick a Template later and everything routes
+    // itself the same way every time.
+    ingredients:[{name:'',qty:'',unit:'',isMise:false,producedBy:''},{name:'',qty:'',unit:'',isMise:false,producedBy:''}],
+    miseCreated:[],
+    miseUsed:[],
+    tools:[],
+    steps:[{text:'',uses:[],duration:0,timeNote:''},{text:'',uses:[],duration:0,timeNote:''}]
+  };
+}
+
+// Parses a leading quantity token that may be a whole number, decimal, or a
+// simple/mixed fraction ("2", "1.5", "1/2", "1 1/2") — returns null if it
+// doesn't look like a quantity at all.
+function parseQtyToken(token) {
+  token = (token || '').trim();
+  let m = token.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+  if (m) return parseFloat(m[1]) + (parseFloat(m[2]) / parseFloat(m[3]));
+  m = token.match(/^(\d+)\/(\d+)$/);
+  if (m) return parseFloat(m[1]) / parseFloat(m[2]);
+  if (/^\d+(\.\d+)?$/.test(token)) return parseFloat(token);
+  return null;
+}
+
+// Old recipes (and old exported JSON) store a free-typed "amount" string like
+// "2 cups" or "1/2 cup". This best-effort splits that into a numeric qty and
+// a unit, adding the unit to the shared pick-list if it's new — so nothing
+// from existing data is silently lost, it just needs a quick glance afterward.
+function migrateIngredient(i) {
+  if (!i) return {name:'', qty:'', unit:'', isMise:false, producedBy:''};
+  if (i.qty !== undefined || i.unit !== undefined) {
+    return { name: i.name || '', qty: i.qty || '', unit: i.unit || '', isMise: !!i.isMise, producedBy: i.producedBy || '' };
+  }
+  const raw = (i.amount || '').trim();
+  if (!raw) return { name: i.name || '', qty: '', unit: '', isMise: false, producedBy: '' };
+  const m = raw.match(/^(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?)\s*(.*)$/);
+  let qty = '', unit = raw;
+  if (m) {
+    const parsed = parseQtyToken(m[1]);
+    if (parsed !== null) { qty = parsed; unit = m[2].trim(); }
+  }
+  if (unit && !unitOptions.some(u => u.toLowerCase() === unit.toLowerCase())) unitOptions.push(unit);
+  return { name: i.name || '', qty, unit, isMise: false, producedBy: '' };
+}
+
+function loadRecipesFromArray(arr) {
+  recipes = arr.map(r => ({
+    title: r.title || 'Untitled',
+    price: r.price || '',
+    photo: r.photo || '',
+    prep: r.prep || '', cook: r.cook || '', serv: r.serv || '',
+    ingredients: (r.ingredients && r.ingredients.length) ? r.ingredients.map(migrateIngredient) : [{name:'',qty:'',unit:'',isMise:false,producedBy:''},{name:'',qty:'',unit:'',isMise:false,producedBy:''}],
+    miseCreated: (r.miseCreated || []).map(migrateIngredient),
+    miseUsed: (r.miseUsed || []).map(migrateIngredient),
+    tools: (r.tools || []).map(t => (t || '').trim()).filter(Boolean),
+    steps: (r.steps && r.steps.length) ? r.steps.map(s => ({text:s.text||'', uses:s.uses||[], duration:s.duration||0, timeNote:s.timeNote||''})) : [{text:'',uses:[],duration:0,timeNote:''},{text:'',uses:[],duration:0,timeNote:''}]
+  }));
+}
+
+// Regenerates the Payoff Moments stage's first section from currently INCLUDED
+// recipes, refreshes the Menu tab's dish board, and refreshes the Inventory tab's
+// aggregated ingredient list. Called any time recipes are added, removed,
+// renamed, or toggled in/out.
+// Sums every ingredient's needed qty (grouped by name+unit) across a
+// {recipeTitle: quantity} selections map — shared by the live Menu tab
+// grocery list and by saved Templates, so "how much do I need" is computed
+// the same way everywhere instead of two parallel implementations drifting apart.
+// Second pass shared by both need-computation functions below: groups raw
+// (name, unit, amount, recipeLabel) contributions by ingredient name, then
+// merges each group into one canonical unit using the automatic conversion
+// table (g<->kg, cup<->ml, etc.) wherever the units are convertible. Anything
+// that genuinely can't convert (e.g. "cups" and "oz" of flour — that needs a
+// density, not a fixed ratio) becomes its own separate line instead of being
+// forced into a false total.
+function mergeContributions(raw) {
+  const byName = {};
+  raw.forEach(r => (byName[r.name.toLowerCase()] = byName[r.name.toLowerCase()] || []).push(r));
+
+  const results = [];
+  Object.values(byName).forEach(group => {
+    const name = group[0].name;
+    const canonicalUnit = (group.find(g => g.unit) || group[0]).unit;
+    const canonical = { name, unit: canonicalUnit, qty: 0, recipes: [] };
+    const leftovers = {}; // unit (lowercased) -> {name, unit, qty, recipes}
+    group.forEach(g => {
+      if (!g.unit || g.unit.toLowerCase() === canonicalUnit.toLowerCase()) {
+        canonical.qty += g.amount;
+        canonical.recipes.push(g.recipeLabel);
+        return;
+      }
+      const converted = convertUnits(g.amount, g.unit, canonicalUnit);
+      if (converted !== null) {
+        canonical.qty += converted;
+        canonical.recipes.push(g.recipeLabel);
+      } else {
+        const key = g.unit.toLowerCase();
+        if (!leftovers[key]) leftovers[key] = { name, unit: g.unit, qty: 0, recipes: [] };
+        leftovers[key].qty += g.amount;
+        leftovers[key].recipes.push(g.recipeLabel);
+      }
+    });
+    results.push(canonical);
+    Object.values(leftovers).forEach(l => results.push(l));
+  });
+  return results.sort((a,b) => a.name.localeCompare(b.name) || a.unit.localeCompare(b.unit));
+}
+
+// Sums a {name, qty, unit} field (ingredients or miseUsed) across whichever
+// recipes are selected on the Menu tab, scaled by quantity. Used for the
+// Grocery List (field: 'ingredients') and MISE USED (field: 'miseUsed') —
+// both are meal-specific, so they only count what you've actually planned.
+function computeIngredientNeeds(selectionsMap, field = 'ingredients', recipeFilter = null) {
+  const raw = [];
+  recipes.filter(r => r.title.trim() && (selectionsMap[r.title] || 0) > 0 && (!recipeFilter || recipeFilter(r))).forEach(r => {
+    const qty = selectionsMap[r.title];
+    const recipeLabel = qty > 1 ? `${r.title} ×${qty}` : r.title;
+    (r[field] || []).forEach(ing => {
+      const nm = (ing.name || '').trim();
+      if (!nm) return;
+      raw.push({ name: nm, unit: (ing.unit || '').trim(), amount: (parseFloat(ing.qty) || 0) * qty, recipeLabel });
+    });
+  });
+  return mergeContributions(raw);
+}
+
+
+// Formats a selected recipe as a bullet line: "Title ×N (uses: a, b, c)".
+// Shared by the Weekend Production / Week 1 / Payoff Moments recipe lists —
+// each is just this same formatting applied to a different stageRole bucket.
+// Builds the compact text line used in the printed/preview receipt — order
+// comes from menuAssignmentOrder (what you arranged), filtered to whatever's
+// still actually selected. No fallback default: an unassigned recipe must
+// not silently show up here just because it wasn't placed anywhere yet.
+function stageRoleRecipeLines(role) {
+  return menuAssignmentOrder[role]
+    .map(title => recipes.find(r => r.title === title))
+    .filter(r => r && r.title.trim() && (menuSelections[r.title] || 0) > 0 && menuAssignments[r.title] === role)
+    .map(r => {
+      const qty = menuSelections[r.title];
+      const label = qty > 1 ? `${r.title} ×${qty}` : r.title;
+      const uses = summarizeIngredients(r.ingredients);
+      return uses ? `${label} (uses: ${uses})` : label;
+    });
+}
+
+// Parses free-text prep/cook fields ("10 min", "1.5 hr", "3 hr", bare "90")
+// into minutes. Recipes write these however feels natural, so this stays
+// forgiving rather than requiring a strict format.
+function parseTimeToMinutes(str) {
+  if (!str) return 0;
+  const s = String(str).toLowerCase();
+  let total = 0, matched = false;
+  const hrMatch = s.match(/([\d.]+)\s*h(r|our)?/);
+  const minMatch = s.match(/([\d.]+)\s*m(in)?/);
+  if (hrMatch) { total += parseFloat(hrMatch[1]) * 60; matched = true; }
+  if (minMatch) { total += parseFloat(minMatch[1]); matched = true; }
+  if (!matched) {
+    const n = parseFloat(s);
+    if (!isNaN(n)) total += n; // bare number — assume minutes
+  }
+  return total;
+}
+function formatMinutesLabel(total) {
+  if (total <= 0) return '';
+  const h = Math.floor(total / 60), m = Math.round(total % 60);
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h} hour${h === 1 ? '' : 's'}`;
+  return `${m} min`;
+}
+
+function updatePayoffFromRecipes() {
+  // Every selected recipe routes to exactly one System of Cookery bucket
+  // based on its own Stage Role (set once on the Recipe Card tab) — set it
+  // there and it always lands in the right place, no re-assigning per week.
+  const productionStage = cookeryStages.find(s => s.number === 2);
+  const mealsStage = cookeryStages.find(s => s.number === 3);
+
+  if (productionStage) {
+    let productionSection = productionStage.sections.find(s => s.auto === 'productionMeals');
+    if (!productionSection) {
+      productionSection = { labelType:'MEAL PREP', qualifier:'', customLabel:'', items:[], auto:'productionMeals' };
+      productionStage.sections.unshift(productionSection);
+    }
+    productionSection.items = stageRoleRecipeLines('production');
+
+    // Footer auto-fills from whatever's actually assigned here — total
+    // prep + cook time across those recipes, instead of a static placeholder
+    // that never reflected the real plan.
+    const assignedProduction = menuAssignmentOrder.production
+      .map(t => recipes.find(r => r.title === t))
+      .filter(r => r && (menuSelections[r.title] || 0) > 0 && menuAssignments[r.title] === 'production');
+    const totalMinutes = assignedProduction.reduce((sum, r) => sum + parseTimeToMinutes(r.prep) + parseTimeToMinutes(r.cook), 0);
+    const totalLabel = formatMinutesLabel(totalMinutes);
+    productionStage.footerBig = totalLabel || '—';
+    productionStage.footerSmall = totalLabel
+      ? `total prep + cook, ${assignedProduction.length} recipe${assignedProduction.length === 1 ? '' : 's'} assigned`
+      : 'assign recipes with prep/cook times to see this add up';
+  }
+
+  if (mealsStage) {
+    let week1Section = mealsStage.sections.find(s => s.auto === 'week1Meals');
+    if (!week1Section) {
+      week1Section = { labelType:'READY MEALS', qualifier:'', customLabel:'', items:[], auto:'week1Meals' };
+      mealsStage.sections.unshift(week1Section);
+    }
+    week1Section.items = stageRoleRecipeLines('week1');
+
+    let payoffSection = mealsStage.sections.find(s => s.auto === 'payoff');
+    if (!payoffSection) {
+      payoffSection = { labelType:'CUSTOM', qualifier:'', customLabel:'Sophisticated Ready Meals', items:[], auto:'payoff' };
+      mealsStage.sections.push(payoffSection);
+    }
+    // Only recipes actually marked as Payoff Moments — not every selected
+    // meal — since Week 1 meals now have their own section above.
+    payoffSection.items = stageRoleRecipeLines('payoff');
+  }
+
+  // MISE CREATED / MISE USED / MISE REMAINING all derive from what recipes
+  // declare, scoped to the recipes actually doing that job this round:
+  // Created only counts selected Meal Prep recipes (if you didn't select
+  // the prep task, you're not making that mise this week). Used is now
+  // split into two separate totals instead of one combined figure: Week 1
+  // meals consume mise first (tracked in the Mise Used section right after
+  // Ready Meals), then whatever Sophisticated Meals consume on top of that
+  // gets its own second Mise Used section after Sophisticated Ready Meals —
+  // so each "used" total sits right next to the meals that actually used it.
+  const created = computeIngredientNeeds(menuSelections, 'miseCreated', r => menuAssignments[r.title] === 'production');
+  const usedWeek1 = computeIngredientNeeds(menuSelections, 'miseUsed', r => menuAssignments[r.title] === 'week1');
+  const usedPayoff = computeIngredientNeeds(menuSelections, 'miseUsed', r => menuAssignments[r.title] === 'payoff');
+
+  if (productionStage) {
+    let createdSection = productionStage.sections.find(s => s.auto === 'miseCreated');
+    if (createdSection) {
+      createdSection.items = created.map(s => `${s.name} — ${formatQty(s.qty)}${s.unit ? ' ' + s.unit : ''}`);
+    }
+  }
+  if (mealsStage) {
+    let usedSection = mealsStage.sections.find(s => s.auto === 'miseUsed');
+    if (usedSection) {
+      usedSection.items = usedWeek1.map(s => `${s.name} — ${formatQty(s.qty)}${s.unit ? ' ' + s.unit : ''} (${s.recipes.join(', ')})`);
+    }
+
+    let usedPayoffSection = mealsStage.sections.find(s => s.auto === 'miseUsedPayoff');
+    if (!usedPayoffSection) {
+      usedPayoffSection = { labelType:'MISE USED', qualifier:'', customLabel:'', items:[], auto:'miseUsedPayoff' };
+      mealsStage.sections.push(usedPayoffSection);
+    }
+    usedPayoffSection.items = usedPayoff.map(s => `${s.name} — ${formatQty(s.qty)}${s.unit ? ' ' + s.unit : ''} (${s.recipes.join(', ')})`);
+
+    let remainingSection = mealsStage.sections.find(s => s.auto === 'miseRemaining');
+    if (remainingSection) {
+      // This sits between the two Mise Used sections, so it reflects
+      // what's left after Week 1 only — the mise Sophisticated Meals still
+      // has available to draw from.
+      remainingSection.items = created.map(c => {
+        const match = usedWeek1.find(u => u.name.toLowerCase() === c.name.toLowerCase());
+        if (!match) return `${c.name} — ${formatQty(c.qty)}${c.unit ? ' ' + c.unit : ''}`;
+        const usedInCreatedUnit = match.unit.toLowerCase() === c.unit.toLowerCase() ? match.qty : convertUnits(match.qty, match.unit, c.unit);
+        if (usedInCreatedUnit === null) {
+          return `${c.name} — ${formatQty(c.qty)}${c.unit ? ' ' + c.unit : ''} [used ${formatQty(match.qty)} ${match.unit} — different unit, can't reconcile]`;
+        }
+        const remaining = Math.max(0, c.qty - usedInCreatedUnit);
+        return `${c.name} — ${formatQty(remaining)}${c.unit ? ' ' + c.unit : ''}`;
+      });
+    }
+  }
+
+  const groceryStage = menuStages.find(s => s.number === 1);
+  if (groceryStage) {
+    let autoSection = groceryStage.sections.find(s => s.auto === 'grocery');
+    if (!autoSection) {
+      autoSection = { labelType:'CUSTOM', qualifier:'', customLabel:'From Your Selected Meals', items:[], auto:'grocery' };
+      groceryStage.sections.unshift(autoSection);
+    }
+    // The grocery list is a shortfall, not just a total: whatever's already
+    // covered by Inventory's on-hand amount (converted through the package
+    // ratio if one's set) gets subtracted out, and fully-covered ingredients
+    // drop off the list entirely. When there's no safe way to compare units,
+    // the full needed amount shows with a note rather than a guessed number.
+    autoSection.items = computeIngredientNeeds(menuSelections).map(s => {
+      const entry = inventoryState[s.name.toLowerCase()];
+      let shortfall = s.qty;
+      let note = '';
+      if (entry) {
+        const onHand = invAmountInUnit(entry, s.unit);
+        if (onHand !== null) {
+          shortfall = Math.max(0, s.qty - onHand);
+          if (shortfall <= 0) return null; // fully covered — nothing to buy
+        } else {
+          note = ' [set a matching Inventory unit to auto-subtract]';
+        }
+      }
+      const amt = shortfall ? `${formatQty(shortfall)}${s.unit ? ' ' + s.unit : ''}` : s.unit;
+      return `${s.name}${amt ? ' — ' + amt : ''}${note} (${s.recipes.join(', ')})`;
+    }).filter(Boolean);
+  }
+
+  renderStageGroup('menuStages');
+  renderStageGroup('cookeryStages');
+  renderMenuDishes();
+  renderInventory();
+}
+
+function renderRecipeSelector() {
+  const sel = document.getElementById('recipeSelect');
+  sel.innerHTML = recipes.map((r,i) => `<option value="${i}">${escapeHtml(r.title || 'Untitled')}</option>`).join('');
+  if (activeRecipeIdx >= 0 && recipes[activeRecipeIdx]) sel.value = activeRecipeIdx;
+}
+
+function saveActiveRecipeMeta() {
+  if (activeRecipeIdx === -1 || !recipes[activeRecipeIdx]) return;
+  const r = recipes[activeRecipeIdx];
+  r.title = document.getElementById('rTitle').value;
+  r.prep = document.getElementById('rPrep').value;
+  r.cook = document.getElementById('rCook').value;
+  r.serv = document.getElementById('rServ').value;
+  r.price = document.getElementById('rPrice').value;
+  // r.photo is set directly by handlePhotoUpload/removePhoto, not read from a field here.
+}
+
+// ---- photo upload (Recipe Card tab) ----
+function showPhotoPreview(dataUrl) {
+  const img = document.getElementById('rPhotoPreview');
+  const placeholder = document.getElementById('rPhotoPlaceholder');
+  const removeBtn = document.getElementById('rPhotoRemoveBtn');
+  if (dataUrl) {
+    img.src = dataUrl;
+    img.style.display = 'block';
+    placeholder.style.display = 'none';
+    removeBtn.style.display = 'inline-block';
+  } else {
+    img.style.display = 'none';
+    img.src = '';
+    placeholder.style.display = 'flex';
+    removeBtn.style.display = 'none';
+  }
+}
+
+function handlePhotoUpload(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (activeRecipeIdx === -1 || !recipes[activeRecipeIdx]) {
+    alert('Select or add a recipe first.');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    recipes[activeRecipeIdx].photo = e.target.result;
+    showPhotoPreview(e.target.result);
+    renderMenuDishes();
+  };
+  reader.readAsDataURL(file);
+}
+
+// Menu tab's click-to-add-photo placeholder — sets a recipe's photo
+// directly from the dish list, same underlying recipes[i].photo field as
+// the Recipe Card tab's uploader, without needing to switch tabs.
+let menuPhotoTargetIdx = -1;
+function triggerMenuPhotoUpload(idx) {
+  menuPhotoTargetIdx = idx;
+  document.getElementById('menuPhotoFile').click();
+}
+function handleMenuPhotoUpload(input) {
+  const file = input.files && input.files[0];
+  const idx = menuPhotoTargetIdx;
+  input.value = '';
+  if (!file || idx === -1 || !recipes[idx]) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    recipes[idx].photo = e.target.result;
+    renderMenuDishes();
+    // Keep the Recipe Card tab's own preview in sync if that's the same recipe.
+    if (activeRecipeIdx === idx) showPhotoPreview(e.target.result);
+  };
+  reader.readAsDataURL(file);
+}
+
+// Ingredient photo — stored on the shared inventoryState entry (keyed by
+// lowercased ingredient name), not on the recipe's ingredient row itself,
+// so the same ingredient shows the same photo across every recipe that
+// uses it instead of needing to be uploaded separately each time.
+let ingPhotoTargetKey = null;
+function triggerIngPhotoUpload(key) {
+  if (!key) return;
+  ingPhotoTargetKey = key;
+  document.getElementById('ingPhotoFile').click();
+}
+function handleIngPhotoUpload(input) {
+  const file = input.files && input.files[0];
+  const key = ingPhotoTargetKey;
+  input.value = '';
+  if (!file || !key) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    getInvEntry(key).photo = e.target.result;
+    renderInventory();
+  };
+  reader.readAsDataURL(file);
+}
+
+function removePhoto() {
+  if (activeRecipeIdx === -1 || !recipes[activeRecipeIdx]) return;
+  recipes[activeRecipeIdx].photo = '';
+  showPhotoPreview('');
+  document.getElementById('rPhotoFile').value = '';
+  renderMenuDishes();
+}
+
+function selectRecipe(i) {
+  if (!recipes[i]) return;
+  saveActiveRecipeMeta();
+  activeRecipeIdx = i;
+  const r = recipes[i];
+  document.getElementById('rTitle').value = r.title;
+  document.getElementById('rPrep').value = r.prep;
+  document.getElementById('rCook').value = r.cook;
+  document.getElementById('rServ').value = r.serv;
+  document.getElementById('rPrice').value = r.price;
+  showPhotoPreview(r.photo);
+  ingredients = r.ingredients;
+  miseCreated = r.miseCreated;
+  miseUsed = r.miseUsed;
+  tools = r.tools || (r.tools = []);
+  steps = r.steps;
+  document.getElementById('recipeSelect').value = i;
+  renderForm();
+  render();
+}
+
+// Fires on every keystroke in the title/description/price fields — keeps
+// the dropdown label, the Payoff Moments bullet, and the Menu dish board
+// live-updated for this recipe.
+function onRecipeMetaChange() {
+  saveActiveRecipeMeta();
+  renderRecipeSelector();
+  updatePayoffFromRecipes();
+  render();
+}
+
+function addRecipe() {
+  saveActiveRecipeMeta();
+  recipes.push(blankRecipe('New Recipe'));
+  updatePayoffFromRecipes();
+  renderRecipeSelector();
+  selectRecipe(recipes.length - 1);
+}
+
+function removeActiveRecipe() {
+  if (activeRecipeIdx === -1 || !recipes[activeRecipeIdx]) return;
+  recipes.splice(activeRecipeIdx, 1);
+  activeRecipeIdx = -1;
+  updatePayoffFromRecipes();
+  renderRecipeSelector();
+  if (recipes.length) {
+    selectRecipe(0);
+  } else {
+    ingredients = [];
+    miseCreated = [];
+    miseUsed = [];
+    tools = [];
+    steps = [];
+    document.getElementById('rTitle').value = '';
+    document.getElementById('rPrep').value = '';
+    document.getElementById('rCook').value = '';
+    document.getElementById('rServ').value = '';
+    document.getElementById('rPrice').value = '';
+    showPhotoPreview('');
+    renderForm();
+    render();
+  }
+}
+
+function exportRecipesToJson() {
+  saveActiveRecipeMeta();
+  document.getElementById('recipesJsonBox').value = JSON.stringify(recipes, null, 2);
+}
+
+function downloadRecipesJson() {
+  saveActiveRecipeMeta();
+  const json = JSON.stringify(recipes, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'recipes.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function loadRecipesFromJson() {
+  let parsed;
+  try {
+    parsed = JSON.parse(document.getElementById('recipesJsonBox').value);
+    if (!Array.isArray(parsed)) throw new Error('JSON must be an array of recipes');
+  } catch (e) {
+    alert('Invalid JSON: ' + e.message);
+    return;
+  }
+  loadRecipesFromArray(parsed);
+  activeRecipeIdx = -1;
+  updatePayoffFromRecipes();
+  renderRecipeSelector();
+  if (recipes.length) selectRecipe(0);
+}
+
+function loadRecipesFromJsonFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    document.getElementById('recipesJsonBox').value = reader.result;
+    loadRecipesFromJson();
+  };
+  reader.readAsText(file);
+  event.target.value = ''; // allow re-selecting the same file again later
+}
+
+sysRenderForm();
+sysRender();
+renderMenuStageForm();
+renderMenuStageColumns();
+loadRecipesFromArray(FAKE_RECIPES_JSON);
+updatePayoffFromRecipes();
+renderRecipeSelector();
+renderMenuTemplates();
+if (recipes.length) selectRecipe(0);
+</script>
+
+</body>
+</html>
